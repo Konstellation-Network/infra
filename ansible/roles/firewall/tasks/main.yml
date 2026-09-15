@@ -1,0 +1,93 @@
+---
+# Host-level ufw, mirroring the cloud firewalls in terraform/envs/testnet-1's
+# hetzner.tf/gcp.tf. Deliberately redundant with them: two independent layers
+# that both have to fail open for a host to be reachable it shouldn't be.
+
+- name: Fail if bastion_ipv4 is unset
+  ansible.builtin.assert:
+    that:
+      - bastion_ipv4 | length > 0
+    fail_msg: "bastion_ipv4 must be set — refusing to leave SSH unrestricted."
+
+- name: Fail if network_cidr is unset
+  ansible.builtin.assert:
+    that:
+      - network_cidr | length > 0
+    fail_msg: >-
+      network_cidr must be set per-host by terraform's inventory output
+      (Hetzner and GCP have separate private networks) — refusing to guess.
+
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+
+- name: Default deny incoming
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: Default allow outgoing
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow SSH from bastion only
+  community.general.ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+    src: "{{ bastion_ipv4 }}"
+
+- name: Allow prometheus + node_exporter scrape from the private network only
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    src: "{{ network_cidr }}"
+  loop:
+    - "{{ prometheus_port }}"
+    - "{{ node_exporter_port }}"
+
+- name: Allow p2p (26656) from the private network only — validators
+  when: node_role == 'validator'
+  community.general.ufw:
+    rule: allow
+    port: "26656"
+    proto: tcp
+    src: "{{ network_cidr }}"
+
+- name: Allow p2p (26656) from anywhere — sentries and rpc
+  when: node_role in ['sentry', 'rpc']
+  community.general.ufw:
+    rule: allow
+    port: "26656"
+    proto: tcp
+
+- name: Allow public RPC/REST/JSON-RPC ports — rpc only
+  when: node_role == 'rpc'
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "26657"
+    - "1317"
+    - "8545:8546"
+
+- name: Allow internal-only RPC/REST/JSON-RPC ports — archive only
+  when: node_role == 'archive'
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    src: "{{ network_cidr }}"
+  loop:
+    - "26657"
+    - "1317"
+    - "8545:8546"
+
+- name: Enable ufw
+  community.general.ufw:
+    state: enabled

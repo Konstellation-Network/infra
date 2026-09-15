@@ -1,0 +1,33 @@
+# Example central Prometheus config for testnet-1, spanning both clouds.
+# Targets are IPs, not hostnames — the monitoring host would need private
+# connectivity into BOTH Hetzner's (10.0.1.0/24) and GCP's (10.0.2.0/24)
+# networks (no terraform module for that host exists yet, see
+# infra/README.md "Known gaps"). Fill these in from terraform output, or
+# template this file the same way ansible/inventories/testnet-1/hosts.yml is
+# generated (see terraform/envs/testnet-1/outputs.tf).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: konstellation-chain
+    static_configs:
+      - targets:
+          - "10.0.1.11:26660" # testnet-1-hetzner-validator-v1
+          - "10.0.1.12:26660" # testnet-1-hetzner-validator-v2
+          - "10.0.2.14:26660" # testnet-1-gcp-validator-v4
+          - "10.0.2.15:26660" # testnet-1-gcp-validator-v5
+        labels:
+          role: validator
+
+  - job_name: node-exporter
+    static_configs:
+      - targets:
+          - "10.0.1.11:9100"
+          - "10.0.1.12:9100"
+          - "10.0.2.14:9100"
+          - "10.0.2.15:9100"

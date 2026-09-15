@@ -1,0 +1,9 @@
+exclude_paths:
+  - collections/ # ansible-galaxy collection installs, local only, never committed
+  - inventories/testnet-1/hosts.yml.example
+
+# var-naming[no-role-prefix] is intentionally not fixed: node/cosmovisor/horcrux/
+# monitoring/firewall roles share one flat variable namespace on purpose (one
+# host = one set of facts like daemon_home, chain_id — not five prefixed copies
+# that could drift from each other). Left as a visible lint warning rather than
+# suppressed, so a future change that actually breaks this assumption still shows up.

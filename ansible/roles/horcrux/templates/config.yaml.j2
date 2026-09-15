@@ -1,0 +1,9 @@
+signMode: threshold
+thresholdMode:
+  threshold: {{ horcrux_threshold }}
+  cosigners:
+    # Filled in by hand once cosigner hosts/ports are finalized — deliberately
+    # not templated from the terraform inventory yet (see tasks/main.yml).
+    []
+chainNodes:
+  - privValAddr: tcp://0.0.0.0:1234

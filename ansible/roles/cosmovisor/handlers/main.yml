@@ -1,0 +1,6 @@
+---
+- name: Reload systemd and restart cosmovisor
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: cosmovisor.service
+    state: restarted

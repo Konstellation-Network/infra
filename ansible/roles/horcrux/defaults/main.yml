@@ -1,0 +1,8 @@
+---
+konstellation_user: konstellation
+konstellation_group: konstellation
+horcrux_version: "v3.3.0"
+horcrux_sha256: ""
+horcrux_home: /home/konstellation/.horcrux
+horcrux_threshold: 2
+horcrux_shares: 3

@@ -1,0 +1,32 @@
+---
+# Shared across every node in testnet-1. Values here mirror ENGINEERING.md §1/§2/§3.
+
+chain_id: testnet-1
+evm_chain_id: 56671
+bech32_prefix: kons
+base_denom: esp
+denom_display: KASH
+
+daemon_name: konstellationd
+daemon_home: /home/konstellation/.konstellationd
+
+# Filled in from the release checklist (ENGINEERING.md §16) once a build exists.
+# Never trust an unpinned version here — see ansible/roles/node/tasks/main.yml.
+konstellationd_version: ""
+konstellationd_sha256: ""
+
+# Krakatoa app-side mempool (ENGINEERING.md §11 D13 — open decision, currently
+# left ON because it's the cosmos/evm v0.7 default and `konstellationd init`
+# writes it; flip here fleet-wide the day D13 is decided, not per host.
+mempool_type: app
+
+prometheus_enabled: true
+prometheus_port: 26660
+
+# Must match terraform/envs/testnet-1/variables.tf's bastion_ipv4 — kept here
+# too so ansible-playbook doesn't depend on terraform output at run time.
+# network_cidr is NOT set here: Hetzner and GCP have separate private
+# networks, so terraform sets it per-host in hosts.yml (see
+# terraform/envs/testnet-1/outputs.tf and inventory.tpl.yml) rather than one
+# fleet-wide value.
+bastion_ipv4: ""

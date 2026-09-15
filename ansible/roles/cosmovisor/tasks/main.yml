@@ -1,0 +1,35 @@
+---
+# Cosmovisor with auto-download OFF (ENGINEERING.md §9.2): every upgrade binary
+# is staged by hand into cosmovisor/upgrades/<name>/bin/ by ansible/upgrade.yml
+# after checksum verification, never pulled automatically from a governance
+# proposal's upgrade-info.json.
+
+- name: Fail if cosmovisor_sha256 is unset
+  ansible.builtin.assert:
+    that:
+      - cosmovisor_sha256 | length > 0
+    fail_msg: "cosmovisor_sha256 must be set — never install cosmovisor unverified."
+
+- name: Download and verify cosmovisor {{ cosmovisor_version }}
+  ansible.builtin.get_url:
+    url: "https://github.com/cosmos/cosmos-sdk/releases/download/cosmovisor%2F{{ cosmovisor_version }}/cosmovisor-{{ cosmovisor_version }}-linux-amd64"
+    dest: /usr/local/bin/cosmovisor
+    checksum: "sha256:{{ cosmovisor_sha256 }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install cosmovisor systemd unit
+  ansible.builtin.template:
+    src: cosmovisor.service.j2
+    dest: /etc/systemd/system/cosmovisor.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd and restart cosmovisor
+
+- name: Enable cosmovisor at boot
+  ansible.builtin.systemd:
+    name: cosmovisor.service
+    enabled: true
+    daemon_reload: true

@@ -1,2 +1,28 @@
-.DS_Store
-node_modules/
+# Terraform
+**/.terraform/
+# Lock files are only meaningful (and only committed) for actual root modules
+# (terraform/envs/*) — a module under terraform/modules/ is never `init`'d
+# directly in real usage, only ever consumed via `source = "../../modules/..."`.
+**/.terraform.lock.hcl
+!terraform/envs/*/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+backend.hcl
+crash.log
+crash.*.log
+
+# Ansible
+*.retry
+.vault-pass
+*vault-password*
+
+# Local key material — must never exist in this repo in the first place,
+# but block it at the .gitignore level too.
+*.pem
+*priv_validator_key*
+*horcrux*shard*
+
+# ansible-galaxy collection installs (local, from requirements.yml)
+ansible/collections/

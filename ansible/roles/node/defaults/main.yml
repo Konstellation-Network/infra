@@ -1,0 +1,38 @@
+---
+konstellation_user: konstellation
+konstellation_group: konstellation
+
+daemon_name: konstellationd
+daemon_home: /home/konstellation/.konstellationd
+
+konstellationd_version: ""
+konstellationd_sha256: ""
+konstellationd_release_url: "https://github.com/Konstellation-Network/konstellation/releases/download/{{ konstellationd_version }}/konstellationd-{{ konstellationd_version }}-linux-amd64"
+
+chain_id: testnet-1
+evm_chain_id: 56671
+bech32_prefix: kons
+base_denom: esp
+
+genesis_url: ""
+genesis_sha256: ""
+
+pex: true
+persistent_peers: ""
+private_peer_ids: ""
+seeds: ""
+
+pruning: default
+pruning_keep_recent: "0"
+pruning_interval: "0"
+
+prometheus_enabled: true
+prometheus_port: 26660
+
+mempool_type: app
+public_ip: true
+
+jsonrpc_enabled: false
+evm_tracer_enabled: false
+
+local_ssd_count: 0

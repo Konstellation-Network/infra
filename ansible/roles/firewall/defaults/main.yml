@@ -1,0 +1,7 @@
+---
+node_role: rpc  # overridden per group_vars
+bastion_ipv4: ""
+network_cidr: ""  # per-host, from terraform's inventory output — Hetzner and GCP have separate private networks
+prometheus_port: 26660
+node_exporter_port: 9100
+ssh_port: 22

@@ -1,0 +1,23 @@
+---
+# Full fleet configuration. Idempotent — safe to re-run. Does not touch key
+# material (horcrux shards, priv_validator_key.json) beyond installing the
+# binary and an empty config skeleton; see ansible/roles/horcrux/tasks/main.yml.
+#
+# Usage:
+#   ansible-playbook site.yml --limit validators   # one group at a time is safer
+#   ansible-playbook site.yml                       # whole fleet
+
+- name: Configure all konstellation-network nodes
+  hosts: all
+  become: true
+  roles:
+    - firewall
+    - node
+    - cosmovisor
+    - monitoring
+
+- name: Configure horcrux cosigners
+  hosts: validators
+  become: true
+  roles:
+    - horcrux

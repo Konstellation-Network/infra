@@ -1,0 +1,11 @@
+---
+node_role: rpc
+
+pex: true
+pruning: custom
+pruning_keep_recent: "100"
+pruning_interval: "10"
+
+public_ip: true
+
+jsonrpc_enabled: true

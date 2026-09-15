@@ -1,0 +1,9 @@
+---
+node_exporter_version: "1.8.2"
+node_exporter_sha256: ""
+node_exporter_port: 9100
+node_exporter_release_url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+
+# Central prometheus/grafana host's private IP — scrape targets are locked to
+# it in the firewall role, not left open on the private subnet generally.
+monitoring_host_private_ip: ""

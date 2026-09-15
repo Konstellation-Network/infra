@@ -1,0 +1,276 @@
+---
+# Installs konstellationd from a pinned, checksummed release build only —
+# never built on the host (ENGINEERING.md §2.6: all release binaries come
+# from CI in the konstellation repo). This role fails closed if the version
+# pin or checksum vars are empty rather than silently skip verification.
+
+- name: Fail if konstellationd_version/sha256 are unset
+  ansible.builtin.assert:
+    that:
+      - konstellationd_version | length > 0
+      - konstellationd_sha256 | length > 0
+    fail_msg: >-
+      konstellationd_version and konstellationd_sha256 must be set (see
+      group_vars/all.yml) before this role can run. Get them from the
+      release checklist in the networks repo — never guess a checksum.
+
+- name: Create konstellation group
+  ansible.builtin.group:
+    name: "{{ konstellation_group }}"
+    system: true
+
+- name: Create konstellation user
+  ansible.builtin.user:
+    name: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "/home/{{ konstellation_user }}"
+    create_home: true
+
+- name: Create daemon home and cosmovisor directory tree
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0750"
+  loop:
+    - "{{ daemon_home }}"
+    - "{{ daemon_home }}/config"
+    - "{{ daemon_home }}/cosmovisor"
+    - "{{ daemon_home }}/cosmovisor/genesis/bin"
+    - "{{ daemon_home }}/cosmovisor/upgrades"
+
+# --- data volume: a single attached disk (Hetzner/GCP archive nodes) ---
+
+- name: Mount attached data volume, if this host has one
+  when: data_volume_device is defined
+  block:
+    - name: Format data volume (only if it has no filesystem yet)
+      community.general.filesystem:
+        fstype: ext4
+        dev: "{{ data_volume_device }}"
+
+    - name: Mount data volume under daemon_home {{ daemon_home }}
+      ansible.posix.mount:
+        path: "{{ daemon_home }}/data"
+        src: "{{ data_volume_device }}"
+        fstype: ext4
+        opts: defaults,nofail
+        state: mounted
+
+    - name: Fix ownership of mounted data dir
+      ansible.builtin.file:
+        path: "{{ daemon_home }}/data"
+        owner: "{{ konstellation_user }}"
+        group: "{{ konstellation_group }}"
+        mode: "0750"
+
+# --- data volume: striped GCP validator Local SSDs ---
+#
+# terraform/modules/gcp/validator attaches local_ssd_count NVMe-interface
+# Local SSDs (375 GiB each — GCP's fixed increment); a single one doesn't
+# meet ENGINEERING.md §9.2's multi-TB spec, so they're striped into one RAID0
+# array. See that module's local_ssd_count variable for the ephemerality /
+# double-sign-risk caveat this depends on — this task block does not mitigate
+# that risk, it only makes the striped capacity usable.
+
+- name: Stripe and mount GCP validator Local SSDs, if this host has any
+  when: local_ssd_count | default(0) > 0
+  block:
+    - name: Install mdadm
+      ansible.builtin.apt:
+        name: mdadm
+        state: present
+        update_cache: true
+
+    - name: Build list of Local SSD device paths
+      ansible.builtin.set_fact:
+        local_ssd_devices: >-
+          {{ range(0, local_ssd_count) | map('string')
+             | map('regex_replace', '^(.*)$', '/dev/disk/by-id/google-local-nvme-ssd-\1')
+             | list }}
+
+    - name: Check for an existing RAID array
+      ansible.builtin.stat:
+        path: /dev/md0
+      register: raid_array
+
+    - name: Create RAID0 array across Local SSDs
+      when: not raid_array.stat.exists
+      ansible.builtin.command:
+        cmd: >-
+          mdadm --create /dev/md0 --level=0
+          --raid-devices={{ local_ssd_count }} {{ local_ssd_devices | join(' ') }}
+        creates: /dev/md0
+
+    - name: Read current RAID array definition
+      ansible.builtin.command: mdadm --detail --scan
+      register: mdadm_scan
+      changed_when: false
+
+    - name: Persist RAID array assembly across reboots
+      ansible.builtin.lineinfile:
+        path: /etc/mdadm/mdadm.conf
+        line: "{{ mdadm_scan.stdout }}"
+        create: true
+        mode: "0644"
+      notify: Rebuild initramfs
+
+    - name: Format RAID array (only if it has no filesystem yet)
+      community.general.filesystem:
+        fstype: ext4
+        dev: /dev/md0
+
+    - name: Mount RAID array under daemon_home {{ daemon_home }}
+      ansible.posix.mount:
+        path: "{{ daemon_home }}/data"
+        src: /dev/md0
+        fstype: ext4
+        opts: defaults,nofail
+        state: mounted
+
+    - name: Fix ownership of mounted RAID data dir
+      ansible.builtin.file:
+        path: "{{ daemon_home }}/data"
+        owner: "{{ konstellation_user }}"
+        group: "{{ konstellation_group }}"
+        mode: "0750"
+
+# --- binary ---
+
+- name: Download and verify konstellationd {{ konstellationd_version }}
+  ansible.builtin.get_url:
+    url: "{{ konstellationd_release_url }}"
+    dest: "{{ daemon_home }}/cosmovisor/genesis/bin/{{ daemon_name }}"
+    checksum: "sha256:{{ konstellationd_sha256 }}"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0755"
+
+- name: Symlink cosmovisor current -> genesis on first install
+  ansible.builtin.file:
+    src: "{{ daemon_home }}/cosmovisor/genesis"
+    dest: "{{ daemon_home }}/cosmovisor/current"
+    state: link
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    force: false  # never clobber an existing symlink — that's how a running upgrade gets rolled back by accident
+
+# --- genesis (idempotent: only runs `init` if config.toml doesn't exist yet) ---
+
+- name: Run konstellationd init to scaffold config
+  become: true
+  become_user: "{{ konstellation_user }}"
+  ansible.builtin.command:
+    cmd: >-
+      {{ daemon_home }}/cosmovisor/genesis/bin/{{ daemon_name }} init {{ inventory_hostname }}
+      --chain-id {{ chain_id }}
+      --default-denom {{ base_denom }}
+      --home {{ daemon_home }}
+    creates: "{{ daemon_home }}/config/config.toml"
+  environment:
+    DAEMON_HOME: "{{ daemon_home }}"
+    DAEMON_NAME: "{{ daemon_name }}"
+
+- name: Fetch real genesis.json, verify sha256 (overrides init's placeholder)
+  when: genesis_url | length > 0
+  ansible.builtin.get_url:
+    url: "{{ genesis_url }}"
+    dest: "{{ daemon_home }}/config/genesis.json"
+    checksum: "sha256:{{ genesis_sha256 }}"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  notify: Restart cosmovisor
+
+# --- config ---
+#
+# `konstellationd init` (above) already writes a correct, complete
+# config.toml/app.toml/client.toml — that is the entire point of the
+# app/cmd/konstellationd/cmd/init.go work in the konstellation repo
+# (STATUS.md §3: the old local_node.sh jq/sed patching is gone specifically
+# because init is now trusted to get this right). Ansible's job is to
+# reconcile the small set of keys that are environment-specific (peers,
+# pruning, whether this host is public), not to regenerate the files from a
+# template — a from-scratch template here would silently drift from whatever
+# `init` produces and reintroduce the exact class of bug that was removed.
+
+- name: Reconcile config.toml [p2p]
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/config.toml"
+    section: p2p
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  loop:
+    - { option: "pex", value: "{{ pex | lower }}" }
+    - { option: "seeds", value: '"{{ seeds }}"' }
+    - { option: "persistent_peers", value: '"{{ persistent_peers }}"' }
+    - { option: "private_peer_ids", value: '"{{ private_peer_ids }}"' }
+  notify: Restart cosmovisor
+
+- name: Reconcile config.toml [instrumentation]
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/config.toml"
+    section: instrumentation
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  loop:
+    - { option: "prometheus", value: "{{ prometheus_enabled | lower }}" }
+    - { option: "prometheus_listen_addr", value: '":{{ prometheus_port }}"' }
+  notify: Restart cosmovisor
+
+- name: Reconcile config.toml [mempool] (Krakatoa app-side mempool, ENGINEERING.md §7.3/D13)
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/config.toml"
+    section: mempool
+    option: type
+    value: '"{{ mempool_type }}"'
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  notify: Restart cosmovisor
+
+- name: Reconcile app.toml [pruning]
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/app.toml"
+    section: null
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  loop:
+    - { option: "pruning", value: '"{{ pruning }}"' }
+    - { option: "pruning-keep-recent", value: '"{{ pruning_keep_recent }}"' }
+    - { option: "pruning-interval", value: '"{{ pruning_interval }}"' }
+  when: pruning != "default"
+  notify: Restart cosmovisor
+
+- name: Reconcile app.toml [json-rpc]
+  when: jsonrpc_enabled
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/app.toml"
+    section: json-rpc
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  loop:
+    - { option: "enable", value: "true" }
+    - { option: "api", value: '"eth,net,web3,txpool{{ ",debug" if evm_tracer_enabled else "" }}"' }
+  notify: Restart cosmovisor
+
+# app.toml's evm-chain-id is intentionally NOT set here: app/config.ValidateEVMChainID
+# in the konstellation binary itself reconciles it from genesis on every start
+# (ENGINEERING.md §1's chain-id invariant) and refuses to boot on a mismatch. A
+# playbook that also wrote this value would be a second source of truth for the
+# exact thing that invariant exists to prevent.

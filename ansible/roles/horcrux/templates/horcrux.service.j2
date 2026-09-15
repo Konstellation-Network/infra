@@ -1,0 +1,15 @@
+[Unit]
+Description=Konstellation horcrux threshold cosigner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ konstellation_user }}
+Group={{ konstellation_group }}
+ExecStart=/usr/local/bin/horcrux cosigner start --home {{ horcrux_home }}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

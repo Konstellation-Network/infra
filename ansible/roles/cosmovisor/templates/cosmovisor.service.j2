@@ -1,0 +1,25 @@
+[Unit]
+Description=Konstellation cosmovisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ konstellation_user }}
+Group={{ konstellation_group }}
+ExecStart=/usr/local/bin/cosmovisor run start --home {{ daemon_home }}
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+Environment=DAEMON_NAME={{ daemon_name }}
+Environment=DAEMON_HOME={{ daemon_home }}
+# Never true: an upgrade binary reaching a validator without a human
+# verifying its checksum is exactly the scenario ansible/upgrade.yml exists
+# to prevent (ENGINEERING.md §9.2, §2.6).
+Environment=DAEMON_ALLOW_DOWNLOAD_BINARIES=false
+Environment=DAEMON_RESTART_AFTER_UPGRADE=true
+Environment=UNSAFE_SKIP_BACKUP=false
+
+[Install]
+WantedBy=multi-user.target

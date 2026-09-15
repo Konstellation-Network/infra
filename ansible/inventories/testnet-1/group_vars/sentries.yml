@@ -1,0 +1,13 @@
+---
+node_role: sentry
+
+pex: true
+# private_peer_ids: the shielded validator's node ID, so it's never gossiped
+# over pex. Per-host — set in host_vars, one value per sentry.
+private_peer_ids: ""
+
+pruning: custom
+pruning_keep_recent: "100"
+pruning_interval: "10"
+
+public_ip: true

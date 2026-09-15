@@ -1,0 +1,80 @@
+# Alert rules for testnet-1, per ENGINEERING.md §9.2: "Alert on missed blocks,
+# falling peer count, block-time drift, disk headroom, and no new blocks — the
+# last is the exploit tripwire."
+#
+# Assumes a central Prometheus scraping every node's CometBFT metrics
+# (instrumentation.prometheus_listen_addr, set by ansible/roles/node) and
+# node_exporter (ansible/roles/monitoring) on the private network.
+# Wire tenderduty separately for validator-specific paging (missed blocks,
+# double-sign risk) — these rules are the Prometheus/Alertmanager side only.
+#
+# CAVEAT: metric names below (cometbft_consensus_*) are CometBFT's documented
+# convention but have NOT been confirmed against a live node's /metrics yet —
+# no node exists to scrape. Verify against the real output before relying on
+# these in a drill; a metric rename between cometbft versions is the likeliest
+# way this file goes stale silently.
+
+groups:
+  - name: konstellation-chain
+    rules:
+      # The tripwire. Any node — validator or full node — producing no new
+      # blocks for 3 minutes is either dead, forked, or the exploit scenario
+      # ENGINEERING.md §4.2 is written around.
+      - alert: NoNewBlocks
+        expr: increase(cometbft_consensus_height[3m]) == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} has produced no new blocks in 3 minutes"
+          runbook: infra/runbooks/emergency-halt.md
+
+      - alert: ValidatorMissedBlocks
+        expr: increase(cometbft_consensus_validator_missed_blocks[10m]) > 5
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} missed more than 5 blocks in the last 10 minutes"
+          runbook: infra/runbooks/validator-key-rotation.md
+
+      - alert: FallingPeerCount
+        expr: cometbft_p2p_peers < 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} has fewer than 2 peers"
+
+      - alert: BlockTimeDrift
+        expr: |
+          abs(rate(cometbft_consensus_height[5m]) * 60 - 1) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} block production rate is more than 50% off the ~1/min target"
+
+      - alert: DiskHeadroomLow
+        expr: node_filesystem_avail_bytes{mountpoint=~"/|/home.*"} / node_filesystem_size_bytes{mountpoint=~"/|/home.*"} < 0.15
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} has less than 15% disk headroom on {{ $labels.mountpoint }}"
+
+      - alert: DiskHeadroomCritical
+        expr: node_filesystem_avail_bytes{mountpoint=~"/|/home.*"} / node_filesystem_size_bytes{mountpoint=~"/|/home.*"} < 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} has less than 5% disk headroom on {{ $labels.mountpoint }} — IAVL commits will start failing"
+
+      - alert: NodeDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus can't scrape {{ $labels.instance }}"

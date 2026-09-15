@@ -1,0 +1,12 @@
+---
+- name: Restart cosmovisor
+  ansible.builtin.systemd:
+    name: cosmovisor.service
+    state: restarted
+  # Cosmovisor may not be installed yet on a first-ever run (node role runs
+  # before cosmovisor role in site.yml); ignore that specific case, not all errors.
+  failed_when: false
+
+- name: Rebuild initramfs
+  ansible.builtin.command: update-initramfs -u
+  changed_when: true

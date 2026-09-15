@@ -1,0 +1,86 @@
+---
+# Stages a release binary into cosmovisor's upgrades/<name>/bin/ directory
+# (ENGINEERING.md §9.2: cosmovisor auto-download is OFF; binaries are staged
+# by hand after checksum verification). This playbook does NOT restart
+# anything or touch the `current` symlink — cosmovisor swaps it automatically
+# at the governance-set halt height. Run it well ahead of the halt height,
+# then confirm the binary landed before the upgrade window.
+#
+# Required extra-vars:
+#   upgrade_name    - must exactly match the name in the MsgSoftwareUpgrade
+#                      proposal / networks/<net>/upgrades/<name>.md
+#   binary_sha256    - from the release checklist, never from the PR that
+#                      built it and never re-derived on a validator
+#   binary_url       - OR binary_local_path (exactly one of the two)
+#
+# Example:
+#   ansible-playbook -i inventories/testnet-1 upgrade.yml \
+#     -e upgrade_name=v2 \
+#     -e binary_url=https://github.com/Konstellation-Network/konstellation/releases/download/v2/konstellationd-v2-linux-amd64 \
+#     -e binary_sha256=<sha256 from networks/testnet-1/upgrades/v2-*.md>
+
+- name: Stage upgrade binary across the fleet
+  hosts: all
+  become: true
+  become_user: "{{ konstellation_user | default('konstellation') }}"
+  vars:
+    upgrade_name: ""
+    binary_sha256: ""
+    binary_url: ""
+    binary_local_path: ""
+  tasks:
+    - name: Validate required extra-vars
+      ansible.builtin.assert:
+        that:
+          - upgrade_name | length > 0
+          - binary_sha256 | length > 0
+          - (binary_url | length > 0) != (binary_local_path | length > 0)
+        fail_msg: >-
+          Set upgrade_name, binary_sha256, and exactly one of binary_url /
+          binary_local_path via -e. Refusing to guess.
+
+    - name: Create upgrade bin directory
+      ansible.builtin.file:
+        path: "{{ daemon_home }}/cosmovisor/upgrades/{{ upgrade_name }}/bin"
+        state: directory
+        mode: "0750"
+
+    - name: Fetch and verify binary from URL
+      when: binary_url | length > 0
+      ansible.builtin.get_url:
+        url: "{{ binary_url }}"
+        dest: "{{ daemon_home }}/cosmovisor/upgrades/{{ upgrade_name }}/bin/{{ daemon_name }}"
+        checksum: "sha256:{{ binary_sha256 }}"
+        mode: "0755"
+
+    - name: Copy binary from a local, already-verified path
+      when: binary_local_path | length > 0
+      ansible.builtin.copy:
+        src: "{{ binary_local_path }}"
+        dest: "{{ daemon_home }}/cosmovisor/upgrades/{{ upgrade_name }}/bin/{{ daemon_name }}"
+        mode: "0755"
+
+    - name: Verify remote checksum after copy
+      when: binary_local_path | length > 0
+      ansible.builtin.stat:
+        path: "{{ daemon_home }}/cosmovisor/upgrades/{{ upgrade_name }}/bin/{{ daemon_name }}"
+        checksum_algorithm: sha256
+      register: staged_binary
+
+    - name: Fail if the staged binary's checksum doesn't match
+      when: binary_local_path | length > 0
+      ansible.builtin.assert:
+        that:
+          - staged_binary.stat.checksum == binary_sha256
+        fail_msg: >-
+          Staged binary checksum mismatch on {{ inventory_hostname }}:
+          expected {{ binary_sha256 }}, got {{ staged_binary.stat.checksum }}.
+          Do not proceed with this upgrade until this is resolved.
+
+    - name: Report staged binary
+      ansible.builtin.debug:
+        msg: >-
+          {{ daemon_name }} {{ upgrade_name }} staged on {{ inventory_hostname }}
+          at {{ daemon_home }}/cosmovisor/upgrades/{{ upgrade_name }}/bin/{{ daemon_name }}.
+          cosmovisor will swap to it automatically at the halt height — nothing
+          else to do here.

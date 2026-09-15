@@ -1,0 +1,39 @@
+all:
+  vars:
+    ansible_user: deploy
+    chain_id: testnet-1
+  children:
+    validators:
+      hosts:
+%{ for name, v in validators ~}
+        ${v.hostname}:
+          ansible_host: ${v.private_ip}
+          moniker: ${v.hostname}
+          network_cidr: ${v.network_cidr}
+%{ if v.local_ssd_count > 0 ~}
+          local_ssd_count: ${v.local_ssd_count}
+%{ endif ~}
+%{ endfor ~}
+    sentries:
+      hosts:
+%{ for name, s in sentries ~}
+        ${s.hostname}:
+          ansible_host: ${s.public_ipv4}
+          moniker: ${s.hostname}
+          network_cidr: ${s.network_cidr}
+%{ endfor ~}
+    rpc:
+      hosts:
+%{ for name, r in rpcs ~}
+        ${r.hostname}:
+          ansible_host: ${r.public_ipv4}
+          network_cidr: ${r.network_cidr}
+%{ endfor ~}
+    archive:
+      hosts:
+%{ for name, a in archives ~}
+        ${a.hostname}:
+          ansible_host: ${a.private_ip}
+          data_volume_device: ${a.data_volume_device}
+          network_cidr: ${a.network_cidr}
+%{ endfor ~}

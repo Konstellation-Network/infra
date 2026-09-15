@@ -1,0 +1,7 @@
+---
+konstellation_user: konstellation
+konstellation_group: konstellation
+daemon_name: konstellationd
+daemon_home: /home/konstellation/.konstellationd
+cosmovisor_version: "v1.7.0"
+cosmovisor_sha256: ""

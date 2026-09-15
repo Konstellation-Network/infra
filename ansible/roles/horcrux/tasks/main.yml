@@ -1,0 +1,80 @@
+---
+# Installs the horcrux binary and lays out config *structure* only.
+#
+# What this role deliberately does NOT do: generate, place, or move any key
+# share. `horcrux create-ed25519-shares` / the threshold key ceremony is a
+# manual, offline, one-time operation run by a human across the cosigner
+# machines, with the operator verifying each shard lands on the host it was
+# generated for. ENGINEERING.md §2.7: double-signing is unrecoverable and
+# slashes 5% of stake — automating key material movement through a playbook
+# (which gets logged, retried, and diffed) is the wrong trust boundary for it.
+#
+# Also note: this scaffold co-locates the horcrux cosigner with the validator
+# host, which is a simplification. ENGINEERING.md §9.2 calls for cosigners
+# spread across 3+ regions on separate hosts; that's a follow-up (see infra
+# README "known gaps"), not yet reflected in terraform/envs/testnet-1.
+
+- name: Fail if horcrux_sha256 is unset
+  ansible.builtin.assert:
+    that:
+      - horcrux_sha256 | length > 0
+    fail_msg: "horcrux_sha256 must be set — never install horcrux unverified."
+
+- name: Download and verify horcrux {{ horcrux_version }}
+  ansible.builtin.get_url:
+    url: "https://github.com/strangelove-ventures/horcrux/releases/download/{{ horcrux_version }}/horcrux_{{ horcrux_version }}_linux_amd64.tar.gz"
+    dest: /tmp/horcrux.tar.gz
+    checksum: "sha256:{{ horcrux_sha256 }}"
+    mode: "0644"
+
+- name: Extract horcrux binary
+  ansible.builtin.unarchive:
+    src: /tmp/horcrux.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts: ["horcrux"]
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create horcrux home
+  ansible.builtin.file:
+    path: "{{ horcrux_home }}"
+    state: directory
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0700"  # key material directory — no group/other access, ever
+
+- name: Template horcrux config.yaml (chain params + threshold topology, no keys)
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ horcrux_home }}/config.yaml"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0600"
+
+- name: Install horcrux systemd unit (disabled until keys are placed by hand)
+  ansible.builtin.template:
+    src: horcrux.service.j2
+    dest: /etc/systemd/system/horcrux.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Check whether a key shard already exists on this host
+  ansible.builtin.stat:
+    path: "{{ horcrux_home }}/{{ chain_id }}_shard.json"
+  register: horcrux_shard
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Warn that horcrux is not enabled yet
+  when: not horcrux_shard.stat.exists
+  ansible.builtin.debug:
+    msg: >-
+      No key shard found at {{ horcrux_home }}/{{ chain_id }}_shard.json.
+      horcrux.service is installed but left disabled/stopped. Run the
+      threshold key ceremony by hand, place the shard, then enable+start
+      the service manually. This task will not do it for you.

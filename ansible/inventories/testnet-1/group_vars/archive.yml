@@ -1,0 +1,12 @@
+---
+node_role: archive
+
+pex: true
+pruning: "nothing"
+
+# Blockscout needs debug_traceTransaction (ENGINEERING.md §6.5) — tracing must
+# be on, and this must stay off the public internet (§5.2 invariant).
+evm_tracer_enabled: true
+public_ip: false
+
+jsonrpc_enabled: true
