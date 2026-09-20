@@ -140,7 +140,7 @@
     port: "{{ item.0 }}"
     proto: tcp
     src: "{{ item.1 }}"
-  loop: "{{ ['26657', '1317', '8545:8546'] | product(fleet_cidrs) | list }}"
+  loop: "{{ ['26657', '1317', '8545:8546'] | product(archive_rpc_allowed_cidrs if archive_rpc_allowed_cidrs | length > 0 else fleet_cidrs) | list }}"
 
 # --- Horcrux, dedicated mode: cosigners dial validators' priv_validator_laddr
 #     and each other's raft/grpc port. Exact cosigner IPs, not CIDRs. ---

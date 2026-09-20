@@ -35,6 +35,16 @@ node_role: rpc
 
 jsonrpc_enabled: false
 evm_tracer_enabled: false
+# Where the EVM JSON-RPC (8545) and WebSocket (8546) servers bind.
+# `konstellationd init` writes 127.0.0.1, which is right for a validator
+# and wrong for anything another host must reach: the rpc node binds
+# 0.0.0.0 (public, group_vars/rpc.yml) and the archive node binds its
+# private-network address (group_vars/archive.yml) so the explorer's
+# Blockscout stack can reach debug_traceTransaction — found live by the
+# explorer deployment, 2026-09-20. ws-origins is left as init wrote it.
+jsonrpc_bind_address: "127.0.0.1"
+jsonrpc_port: 8545
+jsonrpc_ws_port: 8546
 
 local_ssd_count: 0
 

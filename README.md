@@ -46,9 +46,13 @@ below is what exists in code, not what's running.
 Verified so far (no cloud credentials needed for any of this): `tofu fmt
 -check`, `tofu validate` on every module and on `envs/testnet-1` (OpenTofu —
 a drop-in, terraform-compatible CLI; `terraform` itself works identically),
-`ansible-playbook --syntax-check` on `site.yml`/`upgrade.yml`, and
+`ansible-playbook --syntax-check` on `site.yml`/`upgrade.yml`, `yamllint`,
 `ansible-lint` clean except the intentional `var-naming` trade-off documented
-in `ansible/.ansible-lint`. Not verified: an actual `plan`/`apply` (needs a
+in `ansible/.ansible-lint`, a credential-free `tofu plan` of `envs/testnet-1`
+against a scratch local backend (50 resources, dedicated horcrux mode — this
+is what caught two latent scaffold bugs: GCP public firewall rules with no
+`source_ranges`, and hcloud rules with comma-separated ports), and the
+inventory/ssh_config/role templates rendered against sample data. Not verified: an actual `plan`/`apply` (needs a
 real Hetzner token and GCP project) or anything ansible actually touching a
 live host — including the WireGuard tunnel, the Hetzner NAT path and the
 per-validator horcrux instances, all of which are written against the
@@ -208,6 +212,13 @@ worse commit latency, or a documented backup path for
   for private-only hosts (the cloud-init default-route unit is written to be
   harmless if DHCP already sets it), GCP `can_ip_forward` + custom-route
   return paths through the tunnel, and the exact Grafana apt package version.
+- **Explorer reachability** (found by the explorer's live run, 2026-09-20):
+  archive nodes now bind JSON-RPC/WS to their private address instead of
+  init's `127.0.0.1` (`group_vars/archive.yml` `jsonrpc_bind_address`), and
+  `var.explorer_cidrs` / `archive_rpc_allowed_cidrs` gate who may reach
+  them — both empty/fleet-wide until the explorer host exists and its
+  route into a private network (a bastion WireGuard peer, or a host inside
+  one cloud) is decided. **Open**: that route.
 - **IPv6** is only opened on the Hetzner sentry firewall, not GCP's
   (would need a dual-stack VPC there) — a minor asymmetry, not a security gap.
 

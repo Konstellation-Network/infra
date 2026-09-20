@@ -9,3 +9,4 @@ pruning_interval: "10"
 public_ip: true
 
 jsonrpc_enabled: true
+jsonrpc_bind_address: "0.0.0.0"  # public RPC node

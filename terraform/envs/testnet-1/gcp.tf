@@ -125,11 +125,14 @@ resource "google_compute_firewall" "p2p_validator" {
   }
 }
 
+# Public rules: the provider requires an explicit source; 0.0.0.0/0 here is
+# the intent (the original scaffold omitted it, which fails at plan).
 resource "google_compute_firewall" "p2p_sentry" {
-  name        = "testnet-1-gcp-p2p-sentry"
-  network     = google_compute_network.testnet_1.id
-  direction   = "INGRESS"
-  target_tags = ["sentry"]
+  name          = "testnet-1-gcp-p2p-sentry"
+  network       = google_compute_network.testnet_1.id
+  direction     = "INGRESS"
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["sentry"]
 
   allow {
     protocol = "tcp"
@@ -153,10 +156,11 @@ resource "google_compute_firewall" "monitoring_internal" {
 }
 
 resource "google_compute_firewall" "rpc_public" {
-  name        = "testnet-1-gcp-rpc-public"
-  network     = google_compute_network.testnet_1.id
-  direction   = "INGRESS"
-  target_tags = ["rpc"]
+  name          = "testnet-1-gcp-rpc-public"
+  network       = google_compute_network.testnet_1.id
+  direction     = "INGRESS"
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["rpc"]
 
   allow {
     protocol = "tcp"
@@ -164,11 +168,14 @@ resource "google_compute_firewall" "rpc_public" {
   }
 }
 
+# The fleet's private networks plus the explorer backend (var.explorer_cidrs);
+# the JSON-RPC bind itself is the node's private address (ansible
+# group_vars/archive.yml), never 0.0.0.0.
 resource "google_compute_firewall" "archive_internal" {
   name          = "testnet-1-gcp-archive-internal"
   network       = google_compute_network.testnet_1.id
   direction     = "INGRESS"
-  source_ranges = local.fleet_cidrs
+  source_ranges = local.archive_rpc_cidrs
   target_tags   = ["archive"]
 
   allow {

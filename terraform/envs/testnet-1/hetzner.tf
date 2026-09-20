@@ -123,7 +123,17 @@ resource "hcloud_firewall" "archive" {
   # comma list (the earlier "1317,8545,8546,26657" would have failed at
   # apply, not validate).
   dynamic "rule" {
-    for_each = ["1317", "8545-8546", "26657", "26660", "9100"]
+    for_each = ["1317", "8545-8546", "26657"]
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = rule.value
+      source_ips = local.archive_rpc_cidrs
+    }
+  }
+
+  dynamic "rule" {
+    for_each = ["26660", "9100"]
     content {
       direction  = "in"
       protocol   = "tcp"

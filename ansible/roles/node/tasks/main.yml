@@ -282,6 +282,8 @@
   loop:
     - { option: "enable", value: "true" }
     - { option: "api", value: '"eth,net,web3,txpool{{ ",debug" if evm_tracer_enabled else "" }}"' }
+    - { option: "address", value: '"{{ jsonrpc_bind_address }}:{{ jsonrpc_port }}"' }
+    - { option: "ws-address", value: '"{{ jsonrpc_bind_address }}:{{ jsonrpc_ws_port }}"' }
   notify: Restart cosmovisor
 
 # app.toml's evm-chain-id is intentionally NOT set here: app/config.ValidateEVMChainID

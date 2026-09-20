@@ -103,6 +103,17 @@ variable "cosigner_placement" {
   }
 }
 
+variable "explorer_cidrs" {
+  description = "Address(es) of the explorer's Blockscout backend, allowed to reach the archive nodes' RPC/REST/JSON-RPC (26657, 1317, 8545-8546) in addition to the fleet's private networks. The explorer runs on the app tier outside this fleet (ENGINEERING.md §9.1) and must reach a private address — routed in via one of the bastions — so entries here are private-network or tunnel addresses, never a public 0.0.0.0/0. Empty until the explorer host exists. Mirror any change in ansible group_vars/archive.yml archive_rpc_allowed_cidrs."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = !contains(var.explorer_cidrs, "0.0.0.0/0") && !contains(var.explorer_cidrs, "::/0")
+    error_message = "explorer_cidrs must never open the archive node to the internet (ENGINEERING.md §5.2 / §6.5)."
+  }
+}
+
 variable "wireguard_cidr" {
   description = "Tunnel-interface addresses for the site-to-site WireGuard link between the two bastions (.1 = Hetzner, .2 = GCP). Disjoint from both private networks."
   type        = string

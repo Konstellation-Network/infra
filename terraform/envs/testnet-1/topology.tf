@@ -8,6 +8,9 @@ locals {
   # through the bastions' tunnel with their real source IP (routed, not NAT'd).
   fleet_cidrs = [var.hetzner_network_ip_range, var.gcp_network_ip_range]
 
+  # Archive nodes' RPC/REST/JSON-RPC: the fleet plus the explorer backend.
+  archive_rpc_cidrs = distinct(concat(local.fleet_cidrs, var.explorer_cidrs))
+
   # Hetzner's private-network gateway is always the first address of the
   # network range; private-only Hetzner hosts point their default route at it
   # (cloud-init) so the bastion's 0.0.0.0/0 network route takes effect.

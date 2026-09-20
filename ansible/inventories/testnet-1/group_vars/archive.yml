@@ -10,3 +10,15 @@ evm_tracer_enabled: true
 public_ip: false
 
 jsonrpc_enabled: true
+# Bind JSON-RPC/WS to the private-network address, not init's 127.0.0.1 —
+# otherwise Blockscout cannot reach this node at all (explorer live run,
+# 2026-09-20). Reachability is then decided by the firewalls:
+# archive_rpc_allowed_cidrs below (ufw) and terraform's explorer_cidrs.
+jsonrpc_bind_address: "{{ ansible_host }}"
+# Who may reach 26657/1317/8545-8546 on the archive nodes. Default: the
+# fleet's private networks (fleet_cidrs). Narrow it to the explorer host's
+# address(es) once that host exists — the explorer runs on the stateless
+# app tier (ENGINEERING.md §9.1), outside this fleet, so it reaches the
+# archive over whatever route lands it in a private network (a WireGuard
+# peer on a bastion, or a host inside one of the clouds).
+archive_rpc_allowed_cidrs: "{{ fleet_cidrs }}"

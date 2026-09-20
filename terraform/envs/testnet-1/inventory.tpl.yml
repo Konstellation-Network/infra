@@ -83,10 +83,14 @@ all:
           cloud: ${b.cloud}
           network_cidr: ${b.network_cidr}
           ssh_entry: ${b.ssh_entry}
+%{ if length(b.operator_ssh_cidrs) == 0 ~}
+          operator_ssh_cidrs: []
+%{ else ~}
           operator_ssh_cidrs:
 %{ for c in b.operator_ssh_cidrs ~}
             - ${c}
 %{ endfor ~}
+%{ endif ~}
           nat_gateway: ${b.nat_gateway}
           wireguard_address: ${b.wireguard_address}
           wireguard_peer: ${b.wireguard_peer}
