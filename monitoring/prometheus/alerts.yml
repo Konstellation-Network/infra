@@ -5,8 +5,10 @@
 # Assumes a central Prometheus scraping every node's CometBFT metrics
 # (instrumentation.prometheus_listen_addr, set by ansible/roles/node) and
 # node_exporter (ansible/roles/monitoring) on the private network.
-# Wire tenderduty separately for validator-specific paging (missed blocks,
-# double-sign risk) — these rules are the Prometheus/Alertmanager side only.
+# tenderduty (ansible/roles/monitoring_server) does validator-specific paging
+# (missed blocks, jailed, stalled) — these rules are the Prometheus/
+# Alertmanager side only. Deployed verbatim to the monitoring host by
+# ansible/roles/monitoring_server (promtool check rules on the way).
 #
 # CAVEAT: metric names below (cometbft_consensus_*) are CometBFT's documented
 # convention but have NOT been confirmed against a live node's /metrics yet —
@@ -78,3 +80,30 @@ groups:
           severity: critical
         annotations:
           summary: "Prometheus can't scrape {{ $labels.instance }}"
+
+      # Every node_exporter target in one cloud unreachable at once is not
+      # N dead hosts: it is the bastions' WireGuard tunnel (README.md
+      # "Cross-cloud connectivity") or that cloud's network. Consensus is
+      # unaffected (validator<->sentry never crosses the tunnel); management,
+      # scrape and dedicated-horcrux cosigner traffic is.
+      - alert: CloudUnreachable
+        expr: |
+          count by (cloud) (up{job="node-exporter", cloud!=""} == 0)
+            == count by (cloud) (up{job="node-exporter", cloud!=""})
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "every host in cloud {{ $labels.cloud }} is unreachable from the monitoring host — tunnel or cloud outage"
+          runbook: infra/runbooks/on-call.md
+
+      # The pager itself. tenderduty's /metrics gone for 5 minutes means
+      # validator paging is silently off.
+      - alert: TenderdutyDown
+        expr: up{job="tenderduty"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "tenderduty is not running — validator paging is off"
+          runbook: infra/runbooks/on-call.md

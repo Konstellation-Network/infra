@@ -1,0 +1,66 @@
+# Managed by ansible/roles/monitoring_server.
+#
+# PLACEHOLDER ROUTING. The on-call rota (ENGINEERING.md §17,
+# runbooks/on-call.md) does not exist yet, so the `on-call` receiver below
+# has no integration unless one of the alert_* vars is set — alerts are
+# then received, deduplicated and visible in the Alertmanager UI, and
+# nowhere else. That is deliberate: a pager that goes to "anyone" is one
+# nobody answers. Fill the vars from a vault when the rota is set.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: on-call
+  group_by: ["alertname", "instance"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # The exploit tripwire and anything critical re-pages every 30 minutes
+    # until acknowledged (§9.2: "no new blocks" is the one that matters).
+    - matchers:
+        - severity = critical
+      receiver: on-call
+      repeat_interval: 30m
+    - matchers:
+        - severity = warning
+      receiver: on-call-warnings
+
+inhibit_rules:
+  # A host that is down does not also need its metrics-derived alerts.
+  - source_matchers:
+      - alertname = NodeDown
+    target_matchers:
+      - severity =~ "warning|critical"
+    equal: ["instance"]
+
+receivers:
+  - name: on-call
+{% if alert_pagerduty_routing_key | length > 0 %}
+    pagerduty_configs:
+      - routing_key: "{{ alert_pagerduty_routing_key }}"
+        severity: '{{ '{{' }} .CommonLabels.severity {{ '}}' }}'
+{% endif %}
+{% if alert_slack_webhook_url | length > 0 %}
+    slack_configs:
+      - api_url: "{{ alert_slack_webhook_url }}"
+        channel: "{{ alert_slack_channel }}"
+        send_resolved: true
+{% endif %}
+{% if alert_webhook_url | length > 0 %}
+    webhook_configs:
+      - url: "{{ alert_webhook_url }}"
+        send_resolved: true
+{% endif %}
+  - name: on-call-warnings
+{% if alert_slack_webhook_url | length > 0 %}
+    slack_configs:
+      - api_url: "{{ alert_slack_webhook_url }}"
+        channel: "{{ alert_slack_channel }}"
+        send_resolved: true
+{% endif %}
+{% if alert_webhook_url | length > 0 %}
+    webhook_configs:
+      - url: "{{ alert_webhook_url }}"
+        send_resolved: true
+{% endif %}

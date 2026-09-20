@@ -1,0 +1,16 @@
+---
+node_role: monitoring
+
+# Validators tenderduty pages on. name = the validator's inventory hostname;
+# valoper = its operator address once the gentx exists. Empty valoper =
+# skipped with a warning at deploy time.
+tenderduty_validators:
+  - { name: testnet-1-hetzner-validator-v1, valoper: "" }
+  - { name: testnet-1-hetzner-validator-v2, valoper: "" }
+  - { name: testnet-1-hetzner-validator-v3, valoper: "" }
+  - { name: testnet-1-gcp-validator-v4, valoper: "" }
+  - { name: testnet-1-gcp-validator-v5, valoper: "" }
+
+# Checksums from the upstream release sha256sums.txt — fail closed while empty.
+prometheus_sha256: ""
+alertmanager_sha256: ""

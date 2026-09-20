@@ -1,0 +1,25 @@
+[Unit]
+Description=tenderduty validator pager (container)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStartPre=-/usr/bin/docker rm -f tenderduty
+ExecStartPre=/usr/bin/docker pull {{ tenderduty_image }}{{ '@' + tenderduty_image_digest if tenderduty_image_digest | length > 0 else '' }}
+# Ports bound to loopback only; reach the dashboard through an SSH forward.
+# The container needs to reach the sentries' RPC on private IPs, hence
+# --network host rather than a bridge (+ a route for the far cloud).
+ExecStart=/usr/bin/docker run --rm --name tenderduty \
+  --network host \
+  -v {{ tenderduty_dir }}:/var/lib/tenderduty:ro \
+  -v {{ monitoring_data_dir }}/tenderduty:/state \
+  {{ tenderduty_image }}{{ '@' + tenderduty_image_digest if tenderduty_image_digest | length > 0 else '' }} \
+  -f /var/lib/tenderduty/config.yml -state /state/.tenderduty-state.json
+ExecStop=/usr/bin/docker stop tenderduty
+
+[Install]
+WantedBy=multi-user.target

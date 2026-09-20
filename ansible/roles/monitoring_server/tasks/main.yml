@@ -1,0 +1,269 @@
+---
+- name: Fail if checksums are unset
+  ansible.builtin.assert:
+    that:
+      - prometheus_sha256 | length > 0
+      - alertmanager_sha256 | length > 0
+    fail_msg: "prometheus_sha256 and alertmanager_sha256 must be set — never install unverified."
+
+- name: Fail if tenderduty is not pinned by digest where required
+  when: tenderduty_require_digest | bool
+  ansible.builtin.assert:
+    that:
+      - tenderduty_image_digest | length > 0
+    fail_msg: "tenderduty_require_digest is set but tenderduty_image_digest is empty."
+
+- name: Warn about validator entries with no valoper address
+  when: item.valoper | default('') | length == 0
+  ansible.builtin.debug:
+    msg: "WARNING: tenderduty_validators entry {{ item.name }} has no valoper — skipped. Fill it in once the gentx exists."
+  loop: "{{ tenderduty_validators }}"
+
+# --- data volume ---
+
+- name: Mount the data volume, if this host has one
+  when: data_volume_device | length > 0
+  block:
+    - name: Format data volume (only if it has no filesystem yet)
+      community.general.filesystem:
+        fstype: ext4
+        dev: "{{ data_volume_device }}"
+
+    - name: Mount data volume at {{ monitoring_data_dir }}
+      ansible.posix.mount:
+        path: "{{ monitoring_data_dir }}"
+        src: "{{ data_volume_device }}"
+        fstype: ext4
+        opts: defaults,nofail
+        state: mounted
+
+- name: Create service users
+  ansible.builtin.user:
+    name: "{{ item }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  loop:
+    - prometheus
+    - alertmanager
+
+- name: Create directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0750"
+  loop:
+    - { path: /etc/prometheus, owner: prometheus }
+    - { path: "{{ monitoring_data_dir }}/prometheus", owner: prometheus }
+    - { path: /etc/alertmanager, owner: alertmanager }
+    - { path: "{{ monitoring_data_dir }}/alertmanager", owner: alertmanager }
+    - { path: "{{ tenderduty_dir }}", owner: root }
+    - { path: "{{ monitoring_data_dir }}/tenderduty", owner: root }
+
+# --- prometheus ---
+
+- name: Download prometheus, verify sha256
+  ansible.builtin.get_url:
+    url: "{{ prometheus_release_url }}"
+    dest: /tmp/prometheus.tar.gz
+    checksum: "sha256:{{ prometheus_sha256 }}"
+    mode: "0644"
+
+- name: Extract prometheus + promtool
+  ansible.builtin.unarchive:
+    src: /tmp/prometheus.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts:
+      - "--strip-components=1"
+      - "prometheus-{{ prometheus_version }}.linux-amd64/prometheus"
+      - "prometheus-{{ prometheus_version }}.linux-amd64/promtool"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart prometheus
+
+# The alert rules are the repo's monitoring/prometheus/alerts.yml — one
+# file, reviewed in PRs, deployed verbatim. Do not template a second copy.
+- name: Deploy alert rules from monitoring/prometheus/alerts.yml
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../monitoring/prometheus/alerts.yml"
+    dest: /etc/prometheus/alerts.yml
+    owner: prometheus
+    group: prometheus
+    mode: "0640"
+    validate: "/usr/local/bin/promtool check rules %s"
+  notify: Reload prometheus
+
+- name: Template prometheus.yml (scrape targets from the inventory)
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: prometheus
+    group: prometheus
+    mode: "0640"
+    validate: "/usr/local/bin/promtool check config %s"
+  notify: Reload prometheus
+
+- name: Install prometheus systemd unit
+  ansible.builtin.template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Enable and start prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# --- alertmanager ---
+
+- name: Download alertmanager, verify sha256
+  ansible.builtin.get_url:
+    url: "{{ alertmanager_release_url }}"
+    dest: /tmp/alertmanager.tar.gz
+    checksum: "sha256:{{ alertmanager_sha256 }}"
+    mode: "0644"
+
+- name: Extract alertmanager + amtool
+  ansible.builtin.unarchive:
+    src: /tmp/alertmanager.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts:
+      - "--strip-components=1"
+      - "alertmanager-{{ alertmanager_version }}.linux-amd64/alertmanager"
+      - "alertmanager-{{ alertmanager_version }}.linux-amd64/amtool"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart alertmanager
+
+- name: Template alertmanager.yml (placeholder on-call route)
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /etc/alertmanager/alertmanager.yml
+    owner: alertmanager
+    group: alertmanager
+    mode: "0600"  # may carry a routing key
+    validate: "/usr/local/bin/amtool check-config %s"
+  notify: Restart alertmanager
+
+- name: Install alertmanager systemd unit
+  ansible.builtin.template:
+    src: alertmanager.service.j2
+    dest: /etc/systemd/system/alertmanager.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart alertmanager
+
+- name: Enable and start alertmanager
+  ansible.builtin.systemd:
+    name: alertmanager
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# --- grafana ---
+
+- name: Install grafana apt signing key
+  ansible.builtin.shell: |
+    set -o pipefail
+    install -d -m 0755 /etc/apt/keyrings
+    curl -fsSL {{ grafana_apt_key_url }} | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/grafana.gpg
+
+- name: Add grafana apt repository
+  ansible.builtin.deb822_repository:
+    name: grafana
+    types: deb
+    uris: "{{ grafana_apt_uri }}"
+    suites: stable
+    components: main
+    signed_by: /etc/apt/keyrings/grafana.gpg
+    state: present
+
+- name: Install grafana {{ grafana_version }}
+  ansible.builtin.apt:
+    name: "grafana={{ grafana_version }}"
+    state: present
+    update_cache: true
+
+- name: Hold grafana at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: grafana
+    selection: hold
+
+- name: Grafana data directory on the data volume
+  ansible.builtin.file:
+    path: "{{ monitoring_data_dir }}/grafana"
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: "0750"
+
+- name: Grafana config (private listener, no anonymous, no sign-up)
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: /etc/grafana/grafana.ini
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana
+
+- name: Provision the Prometheus datasource
+  ansible.builtin.template:
+    src: grafana-datasource.yml.j2
+    dest: /etc/grafana/provisioning/datasources/prometheus.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana
+
+- name: Enable and start grafana
+  ansible.builtin.systemd:
+    name: grafana-server
+    enabled: true
+    state: started
+
+# --- tenderduty ---
+
+- name: Install docker — Debian's docker.io, apt-signed, no third-party repo
+  ansible.builtin.apt:
+    name: docker.io
+    state: present
+
+- name: Template tenderduty config
+  ansible.builtin.template:
+    src: tenderduty-config.yml.j2
+    dest: "{{ tenderduty_dir }}/config.yml"
+    owner: root
+    group: root
+    mode: "0600"  # may carry webhook / API keys
+  notify: Restart tenderduty
+
+- name: Install tenderduty systemd unit (docker run, host network on the private address only)
+  ansible.builtin.template:
+    src: tenderduty.service.j2
+    dest: /etc/systemd/system/tenderduty.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart tenderduty
+
+- name: Enable and start tenderduty
+  ansible.builtin.systemd:
+    name: tenderduty
+    enabled: true
+    state: started
+    daemon_reload: true

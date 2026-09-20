@@ -1,0 +1,74 @@
+---
+# Central Prometheus + Alertmanager + Grafana + tenderduty. One host per
+# environment (terraform/modules/<cloud>/monitoring). Nothing here listens
+# beyond the private network; humans reach the UIs with an SSH port-forward
+# through the bastion (runbooks/on-call.md).
+
+monitoring_data_dir: /var/lib/monitoring   # data_volume_device mounted here
+data_volume_device: ""                     # from terraform's inventory output
+
+# Same pattern as every other download in this repo: pinned version, sha256
+# asserted non-empty, fail closed. Fill from the upstream release's
+# sha256sums.txt — never from a mirror.
+prometheus_version: "2.55.1"
+prometheus_sha256: ""
+prometheus_release_url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+prometheus_port: 9090
+prometheus_retention: "90d"
+prometheus_scrape_interval: 15s
+
+alertmanager_version: "0.27.0"
+alertmanager_sha256: ""
+alertmanager_release_url: "https://github.com/prometheus/alertmanager/releases/download/v{{ alertmanager_version }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+alertmanager_port: 9093
+
+# Grafana from its signed apt repository (apt verifies the package signature,
+# so no sha256 var). Pin the version so an apt upgrade cannot surprise the
+# on-call dashboard.
+grafana_version: "11.2.0"
+grafana_port: 3000
+grafana_apt_key_url: "https://apt.grafana.com/gpg.key"
+grafana_apt_uri: "https://apt.grafana.com"
+
+# --- tenderduty (ENGINEERING.md §9.2, §17: the validator pager) ---
+#
+# Upstream (github.com/blockpane/tenderduty) publishes no binaries, only a
+# container image, and the repository was ARCHIVED on 2025-01-02 — it still
+# works and is what every Cosmos on-call uses, but it will not get fixes.
+# Flagged in README.md; evaluate a maintained fork before mainnet. Runs as a
+# container under docker, pinned by digest once one has been chosen
+# (tenderduty_image_digest empty = tag only; fail closed on mainnet).
+tenderduty_image: "ghcr.io/blockpane/tenderduty:latest"
+tenderduty_image_digest: ""
+tenderduty_require_digest: false
+tenderduty_dir: /etc/tenderduty
+tenderduty_dashboard_port: 8888
+tenderduty_prometheus_port: 28686
+# The validators tenderduty watches: one entry per validator with the
+# operator address, filled in once the gentxs exist (empty valoper = the
+# entry is skipped with a warning; fleet nodes are still monitored by
+# Prometheus). name = inventory hostname of the validator host.
+tenderduty_validators: []
+# e.g.
+#   - name: testnet-1-hetzner-validator-v1
+#     valoper: konsvaloper1...
+# RPC endpoints tenderduty queries; defaults to every sentry + the rpc node
+# on their private IPs (validators expose no RPC).
+tenderduty_rpc_nodes: >-
+  {{ (groups['sentries'] | default([]) + groups['rpc'] | default([]))
+     | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\1:26657') | list }}
+tenderduty_consecutive_missed: 5
+tenderduty_percentage_missed: 10
+tenderduty_stalled_minutes: 3
+
+# --- Alert routing: PLACEHOLDER until the on-call rota exists (§17,
+# runbooks/on-call.md). Everything empty = Alertmanager receives alerts and
+# logs them; nothing is paged. Fill exactly one of these per environment
+# (or several) from a vault, never here. ---
+alert_pagerduty_routing_key: ""   # Events API v2 integration key
+alert_slack_webhook_url: ""
+alert_slack_channel: "#konstellation-alerts"
+alert_webhook_url: ""             # generic webhook (e.g. a Signal/Matrix bridge)
+alert_discord_webhook_url: ""     # tenderduty's native discord route
+alert_telegram_api_key: ""
+alert_telegram_channel: ""
