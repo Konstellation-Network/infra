@@ -140,7 +140,7 @@ Times are targets from `ENGINEERING.md §4.2`.
    validator can hit (current + ~20 blocks) and set `halt-height` (tool 2).
    If value is leaving *this minute*, `systemctl stop cosmovisor` on the
    validators (tool 3) — you need ⅓+ of voting power stopped to stop the
-   chain; with 5 in-house validators that is 2 hosts.
+   chain; with 10 equally-staked foundation validators (D7) that is 4 hosts.
 4. **Announce** (`incident-comms.md` "chain halted" template) with the
    height. Do not speculate on cause in public yet.
 5. **Understand before restarting.** A restart that re-opens the same path
@@ -173,5 +173,6 @@ Times are targets from `ENGINEERING.md §4.2`.
 - [ ] Time every step against the table in `on-call.md`.
 - [ ] Use a real patched build (`v<x>-rc1`, `RELEASING.md` pre-release), not a no-op.
 - [ ] Exercise both the breaker and `halt-height`, and at least once the unplanned stop + `rollback` path.
+- [ ] The §15 chaos test is a separate drill: kill 40 % of validators mid-block — 4 of the 10 (two per cloud, so neither cloud loses all its sentries) — and confirm the chain **halts** (60 % of voting power is below the ⅔ needed), then that restarting the four resumes without a double-sign. The halt is the expected result; the restart is what is being rehearsed.
 - [ ] Verify `app_hash` agreement across validators after restart.
 - [ ] Write up: what took longest, what this file got wrong, and fix it in the same PR.

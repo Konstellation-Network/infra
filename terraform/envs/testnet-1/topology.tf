@@ -16,9 +16,9 @@ locals {
   # (cloud-init) so the bastion's 0.0.0.0/0 network route takes effect.
   hetzner_gateway = cidrhost(var.hetzner_network_ip_range, 1)
 
-  # Fixed host slots inside each /24 (validators .11+, sentries .21+, rpc .31,
-  # archive .41/.42 are in hetzner.tf/gcp.tf): bastion .5, monitoring .50,
-  # cosigners .61+.
+  # Fixed host slots inside each /24 (validators .11-.15 Hetzner / .16-.20 GCP,
+  # sentries .21-.25 / .26-.30, rpc .31, archive .41/.42 are in
+  # hetzner.tf/gcp.tf): bastion .5, monitoring .50, cosigners .61+.
   hetzner_bastion_private_ip    = cidrhost(var.hetzner_network_ip_range, 5)
   gcp_bastion_private_ip        = cidrhost(var.gcp_network_ip_range, 5)
   hetzner_monitoring_private_ip = cidrhost(var.hetzner_network_ip_range, 50)

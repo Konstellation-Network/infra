@@ -15,8 +15,8 @@
 #               {{ horcrux_home }}/{{ chain_id }}, cosigners list empty
 #               (filled in by hand). The original scaffold; testnet-1 default.
 #   dedicated — runs on the `cosigners` group. One instance PER VALIDATOR on
-#               every cosigner host (a 5-validator fleet = 5 instances per
-#               host), home {{ horcrux_home }}/<validator hostname>, p2p
+#               every cosigner host (the 10-validator fleet, D7 = 10
+#               instances per host, ports 2222-2231), home {{ horcrux_home }}/<validator hostname>, p2p
 #               port horcrux_p2p_base_port + validator index, cosigner list
 #               = every host in `cosigners` with its shard_id from the
 #               inventory. ENGINEERING.md §9.2; mandatory for mainnet (§18).

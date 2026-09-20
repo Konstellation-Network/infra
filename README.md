@@ -28,7 +28,8 @@ monitoring/
 ├── prometheus/alerts.yml                           # deployed verbatim by roles/monitoring_server
 └── grafana/                                        # empty — see grafana/README.md
 runbooks/                                           # on-call, emergency-halt, coordinated-upgrade,
-                                                    # validator-key-rotation, incident-comms — none rehearsed yet
+                                                    # validator-key-rotation, validator-admission,
+                                                    # incident-comms — none rehearsed yet
 CODEOWNERS
 ```
 
@@ -60,14 +61,16 @@ providers' documented behaviour, not observed.
 
 ## Current scope: testnet-1 only, split across Hetzner and GCP
 
-Started on Hetzner alone; GCP was added on request to run both. Each cloud
+**10 foundation-run validators, 5 per cloud** (`ENGINEERING.md` D7, re-decided
+2026-09-20: the genesis set is 10 on both networks, all foundation-run, further
+admissions permissioned via D16 — `runbooks/validator-admission.md`). Each cloud
 has its own private network; they are joined by one routed site-to-site
 WireGuard tunnel between the two bastions (see "Cross-cloud connectivity"):
 
 | | Hetzner (`10.0.1.0/24`) | GCP (`10.0.2.0/24`) |
 |---|---|---|
-| Validators | 3 (`v1`-`v3`), no public IP, `.11-.13` | 2 (`v4`-`v5`), no public IP, `.14-.15` |
-| Sentries | 3, 1:1 with their validator, public, `.21-.23` | 2, 1:1 with their validator, public, `.24-.25` |
+| Validators | 5 (`v1`-`v5`), no public IP, `.11-.15` | 5 (`v6`-`v10`), no public IP, `.16-.20` |
+| Sentries | 5, 1:1 with their validator, public, `.21-.25` | 5, 1:1 with their validator, public, `.26-.30` |
 | Archive | 1, internal only, `.41` | 1, internal only, `.42` |
 | RPC | — | 1, public, `.31` |
 | Bastion / gateway | 1, public, `.5` — SSH entry, **NAT egress** for the private hosts, tunnel endpoint | 1, public, `.5` — SSH entry, tunnel endpoint (egress is Cloud NAT) |
@@ -80,11 +83,12 @@ Sentries from both clouds peer with each other over the public internet like
 any other node. Only management traffic (SSH from a single-entry bastion,
 metrics scrape, horcrux signing in dedicated mode) crosses the tunnel.
 
-This goes further than `ENGINEERING.md §9.4`'s "5, all in-house" strictly
-requires — it's closer to the provider/ASN diversity that's actually a
-mainnet concern (D7) — but doesn't violate it: all keys are still team-held.
-`terraform/envs/konstellation-1/` doesn't exist yet; don't assume this
-2-cloud split is the final mainnet topology without revisiting §9.2/D7 then.
+Host count with the defaults (`horcrux_mode = colocated`): 10 validators +
+10 sentries + 2 archives + 1 RPC + 2 bastions + 1 monitoring = **26 hosts**;
+`dedicated` adds 3 cosigners (29). `ENGINEERING.md §9.4` now says the same
+fleet runs on both networks, so `terraform/envs/konstellation-1/` (not yet
+created) should start as a copy of this environment with persistent disks
+and `horcrux_mode = "dedicated"` (§18).
 
 ### Cross-cloud connectivity
 
@@ -241,7 +245,7 @@ ansible-playbook site.yml --limit validators --check  # dry run one group first
 ansible-playbook site.yml
 ```
 
-Humans: `ssh -F ansible/inventories/testnet-1/ssh_config testnet-1-gcp-validator-v4`.
+Humans: `ssh -F ansible/inventories/testnet-1/ssh_config testnet-1-gcp-validator-v6`.
 Dashboards: `ssh -F … -L 3000:localhost:3000 -L 9093:localhost:9093 -L 8888:localhost:8888 testnet-1-gcp-monitoring-1`
 then Grafana on :3000, Alertmanager :9093, tenderduty :8888.
 

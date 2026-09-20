@@ -13,6 +13,7 @@ drill write-up.
 | [`emergency-halt.md`](emergency-halt.md) | a security advisory, an exploit in progress, `NoNewBlocks` |
 | [`coordinated-upgrade.md`](coordinated-upgrade.md) | a planned binary upgrade, testnet (`ansible`) or mainnet (governance) |
 | [`validator-key-rotation.md`](validator-key-rotation.md) | moving, re-sharding or replacing a validator's signing key without double-signing |
+| [`validator-admission.md`](validator-admission.md) | admitting an operator beyond the 10 genesis validators (D16: `x/circuit` reset → `MsgCreateValidator` → disable), and going permissionless |
 | [`incident-comms.md`](incident-comms.md) | who says what, where, and when, during any of the above |
 
 Conventions:
