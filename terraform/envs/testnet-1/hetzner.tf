@@ -1,7 +1,15 @@
-# Hetzner's share of testnet-1: 3 validators, 3 sentries (1:1), 1 archive.
-# See gcp.tf for the other 2 validators/sentries, 1 archive, and the 1 RPC
-# node. README.md explains why the fleet is split this way and how the two
-# clouds' sentries find each other without a cross-cloud VPN.
+# Hetzner's share of testnet-1: 3 validators, 3 sentries (1:1), 1 archive,
+# the Hetzner bastion/gateway, and — depending on var.monitoring_cloud /
+# var.horcrux_mode — the monitoring host and/or some cosigners. See gcp.tf
+# for the other half and README.md for why the fleet is split this way and
+# how the two clouds' private networks are joined (bastion WireGuard tunnel).
+#
+# hcloud firewalls filter the PUBLIC interface only (Hetzner docs). Hosts
+# with no public IP — validators, archive, monitoring, cosigners — are not
+# touched by them at all; their attached firewall below is documentation of
+# intent, and ufw (ansible/roles/firewall) is the actual control. The rules
+# that DO bite are the sentry (public p2p), bastion (operator SSH, tunnel)
+# ones.
 
 resource "hcloud_network" "testnet_1" {
   name     = "testnet-1-hetzner"
@@ -15,6 +23,9 @@ resource "hcloud_network_subnet" "testnet_1" {
   ip_range     = var.hetzner_network_ip_range
 }
 
+# Private-only hosts. Nothing on the public interface (there is none); the
+# rules here mirror what ufw enforces so a reader of this file sees the
+# intended policy in one place.
 resource "hcloud_firewall" "validator" {
   name = "testnet-1-hetzner-validator"
 
@@ -22,7 +33,7 @@ resource "hcloud_firewall" "validator" {
     direction  = "in"
     protocol   = "tcp"
     port       = "22"
-    source_ips = [var.bastion_ipv4]
+    source_ips = [for ip in local.hetzner_ssh_sources : "${ip}/32"]
   }
 
   # p2p from sentries. Scoped to the private subnet, not per-sentry IP — the
@@ -36,11 +47,31 @@ resource "hcloud_firewall" "validator" {
     source_ips = [var.hetzner_network_ip_range]
   }
 
+  # Metrics: the monitoring host may be in either cloud.
   rule {
     direction  = "in"
     protocol   = "tcp"
     port       = "26660"
-    source_ips = [var.hetzner_network_ip_range]
+    source_ips = local.fleet_cidrs
+  }
+
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "9100"
+    source_ips = local.fleet_cidrs
+  }
+
+  # priv_validator_laddr: horcrux cosigners dial in. Dedicated mode only —
+  # colocated horcrux talks over loopback.
+  dynamic "rule" {
+    for_each = var.horcrux_mode == "dedicated" ? [1] : []
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = "1234"
+      source_ips = [for ip in values(local.cosigner_private_ips) : "${ip}/32"]
+    }
   }
 }
 
@@ -51,7 +82,7 @@ resource "hcloud_firewall" "sentry" {
     direction  = "in"
     protocol   = "tcp"
     port       = "22"
-    source_ips = [var.bastion_ipv4]
+    source_ips = [for ip in local.hetzner_ssh_sources : "${ip}/32"]
   }
 
   rule {
@@ -65,7 +96,14 @@ resource "hcloud_firewall" "sentry" {
     direction  = "in"
     protocol   = "tcp"
     port       = "26660"
-    source_ips = [var.hetzner_network_ip_range]
+    source_ips = local.fleet_cidrs
+  }
+
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "9100"
+    source_ips = local.fleet_cidrs
   }
 }
 
@@ -76,16 +114,65 @@ resource "hcloud_firewall" "archive" {
     direction  = "in"
     protocol   = "tcp"
     port       = "22"
-    source_ips = [var.bastion_ipv4]
+    source_ips = [for ip in local.hetzner_ssh_sources : "${ip}/32"]
   }
 
   # No public rule at all. debug_traceTransaction is only reachable from
-  # inside the private network (explorer's Blockscout backend).
+  # inside the private networks (explorer's Blockscout backend). One rule
+  # per port: hcloud rule ports are a single port or a range, never a
+  # comma list (the earlier "1317,8545,8546,26657" would have failed at
+  # apply, not validate).
+  dynamic "rule" {
+    for_each = ["1317", "8545-8546", "26657", "26660", "9100"]
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = rule.value
+      source_ips = local.fleet_cidrs
+    }
+  }
+}
+
+# The one Hetzner firewall whose rules are all on a public interface and
+# therefore all effective. Operator SSH (if this bastion is an entry point)
+# and the WireGuard tunnel from the GCP bastion; nothing else, ever.
+resource "hcloud_firewall" "bastion" {
+  name = "testnet-1-hetzner-bastion"
+
+  dynamic "rule" {
+    for_each = length(local.hetzner_bastion_ssh_cidrs) > 0 ? [1] : []
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = "22"
+      source_ips = local.hetzner_bastion_ssh_cidrs
+    }
+  }
+
+  rule {
+    direction  = "in"
+    protocol   = "udp"
+    port       = tostring(var.wireguard_port)
+    source_ips = ["${module.gcp_bastion.public_ipv4}/32"]
+  }
+}
+
+# Private-only, no public interface: intent only (see file header).
+resource "hcloud_firewall" "internal" {
+  name = "testnet-1-hetzner-internal"
+
   rule {
     direction  = "in"
     protocol   = "tcp"
-    port       = "1317,8545,8546,26657"
-    source_ips = [var.hetzner_network_ip_range]
+    port       = "22"
+    source_ips = [for ip in local.hetzner_ssh_sources : "${ip}/32"]
+  }
+
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "9100"
+    source_ips = local.fleet_cidrs
   }
 }
 
@@ -109,19 +196,37 @@ locals {
   hetzner_archive_private_ip = cidrhost(var.hetzner_network_ip_range, 41)
 }
 
+module "hetzner_bastion" {
+  source = "../../modules/hetzner/bastion"
+
+  name           = "testnet-1-hetzner-bastion"
+  location       = var.hetzner_locations[0]
+  ssh_key_ids    = var.hetzner_ssh_key_ids
+  network_id     = hcloud_network.testnet_1.id
+  private_ip     = local.hetzner_bastion_private_ip
+  firewall_ids   = [hcloud_firewall.bastion.id]
+  ssh_public_key = var.ssh_public_key
+  nat_gateway    = true # no managed NAT on Hetzner; without this, private-only hosts have no internet
+  remote_cidrs   = { gcp = var.gcp_network_ip_range }
+  labels         = { network = "testnet-1" }
+
+  depends_on = [hcloud_network_subnet.testnet_1]
+}
+
 module "hetzner_validator" {
   source = "../../modules/hetzner/validator"
 
   for_each = local.hetzner_validators
 
-  name           = "testnet-1-hetzner-validator-${each.key}"
-  location       = each.value.location
-  ssh_key_ids    = var.hetzner_ssh_key_ids
-  network_id     = hcloud_network.testnet_1.id
-  private_ip     = each.value.private_ip
-  firewall_ids   = [hcloud_firewall.validator.id]
-  ssh_public_key = var.ssh_public_key
-  labels         = { network = "testnet-1" }
+  name              = "testnet-1-hetzner-validator-${each.key}"
+  location          = each.value.location
+  ssh_key_ids       = var.hetzner_ssh_key_ids
+  network_id        = hcloud_network.testnet_1.id
+  private_ip        = each.value.private_ip
+  firewall_ids      = [hcloud_firewall.validator.id]
+  ssh_public_key    = var.ssh_public_key
+  default_route_via = local.hetzner_gateway
+  labels            = { network = "testnet-1" }
 
   depends_on = [hcloud_network_subnet.testnet_1]
 }
@@ -147,14 +252,51 @@ module "hetzner_sentry" {
 module "hetzner_archive" {
   source = "../../modules/hetzner/archive"
 
-  name           = "testnet-1-hetzner-archive-1"
-  location       = var.hetzner_locations[0]
-  ssh_key_ids    = var.hetzner_ssh_key_ids
-  network_id     = hcloud_network.testnet_1.id
-  private_ip     = local.hetzner_archive_private_ip
-  firewall_ids   = [hcloud_firewall.archive.id]
-  ssh_public_key = var.ssh_public_key
-  labels         = { network = "testnet-1" }
+  name              = "testnet-1-hetzner-archive-1"
+  location          = var.hetzner_locations[0]
+  ssh_key_ids       = var.hetzner_ssh_key_ids
+  network_id        = hcloud_network.testnet_1.id
+  private_ip        = local.hetzner_archive_private_ip
+  firewall_ids      = [hcloud_firewall.archive.id]
+  ssh_public_key    = var.ssh_public_key
+  default_route_via = local.hetzner_gateway
+  labels            = { network = "testnet-1" }
+
+  depends_on = [hcloud_network_subnet.testnet_1]
+}
+
+module "hetzner_monitoring" {
+  source = "../../modules/hetzner/monitoring"
+
+  count = var.monitoring_cloud == "hetzner" ? 1 : 0
+
+  name              = "testnet-1-hetzner-monitoring-1"
+  location          = var.hetzner_locations[0]
+  ssh_key_ids       = var.hetzner_ssh_key_ids
+  network_id        = hcloud_network.testnet_1.id
+  private_ip        = local.hetzner_monitoring_private_ip
+  firewall_ids      = [hcloud_firewall.internal.id]
+  ssh_public_key    = var.ssh_public_key
+  default_route_via = local.hetzner_gateway
+  labels            = { network = "testnet-1" }
+
+  depends_on = [hcloud_network_subnet.testnet_1]
+}
+
+module "hetzner_cosigner" {
+  source = "../../modules/hetzner/cosigner"
+
+  for_each = local.hetzner_cosigners
+
+  name              = "testnet-1-hetzner-cosigner-${each.key}"
+  location          = each.value.location
+  ssh_key_ids       = var.hetzner_ssh_key_ids
+  network_id        = hcloud_network.testnet_1.id
+  private_ip        = local.cosigner_private_ips[each.key]
+  firewall_ids      = [hcloud_firewall.internal.id]
+  ssh_public_key    = var.ssh_public_key
+  default_route_via = local.hetzner_gateway
+  labels            = { network = "testnet-1" }
 
   depends_on = [hcloud_network_subnet.testnet_1]
 }

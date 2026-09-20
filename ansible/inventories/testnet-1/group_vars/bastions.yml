@@ -1,0 +1,4 @@
+---
+node_role: bastion
+# ssh_entry, operator_ssh_cidrs, nat_gateway, wireguard_* and remote_cidrs
+# are per-host from terraform's inventory output (hosts.yml).

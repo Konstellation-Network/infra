@@ -15,18 +15,23 @@ daemon_home: /home/konstellation/.konstellationd
 konstellationd_version: ""
 konstellationd_sha256: ""
 
-# Krakatoa app-side mempool (ENGINEERING.md §11 D13 — open decision, currently
-# left ON because it's the cosmos/evm v0.7 default and `konstellationd init`
-# writes it; flip here fleet-wide the day D13 is decided, not per host.
+# Krakatoa app-side mempool (ENGINEERING.md §11 D13 — decided 2026-09-14: keep
+# ON; cosmos/evm v0.7 default, `konstellationd init` writes it). Flip here
+# fleet-wide if that ever changes, not per host.
 mempool_type: app
 
 prometheus_enabled: true
 prometheus_port: 26660
 
-# Must match terraform/envs/testnet-1/variables.tf's bastion_ipv4 — kept here
-# too so ansible-playbook doesn't depend on terraform output at run time.
-# network_cidr is NOT set here: Hetzner and GCP have separate private
-# networks, so terraform sets it per-host in hosts.yml (see
-# terraform/envs/testnet-1/outputs.tf and inventory.tpl.yml) rather than one
-# fleet-wide value.
-bastion_ipv4: ""
+# Per-host network facts — bastion_private_ip, network_cidr, cloud — and the
+# fleet-wide ones — fleet_cidrs, monitoring_host_private_ip, horcrux_mode,
+# wireguard_* — are NOT set here: terraform writes them into hosts.yml
+# (terraform/envs/testnet-1/outputs.tf + inventory.tpl.yml) so ansible and
+# the cloud firewalls can never disagree about them.
+
+# --- Alert routing (ansible/roles/monitoring_server): placeholders until
+# the on-call rota exists (ENGINEERING.md §17, runbooks/on-call.md). Set
+# from a vault file, never in plain text here. ---
+alert_pagerduty_routing_key: ""
+alert_slack_webhook_url: ""
+alert_webhook_url: ""

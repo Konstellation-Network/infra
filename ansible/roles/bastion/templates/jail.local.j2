@@ -1,0 +1,16 @@
+# Managed by ansible/roles/bastion
+[DEFAULT]
+bantime  = {{ fail2ban_bantime }}
+findtime = {{ fail2ban_findtime }}
+maxretry = {{ fail2ban_maxretry }}
+backend  = systemd
+{% if operator_ssh_cidrs | length > 0 %}
+# Never ban an operator range: a fat-fingered key during an incident must not
+# lock the on-call out of the fleet.
+ignoreip = 127.0.0.1/8 ::1 {{ operator_ssh_cidrs | join(' ') }}
+{% endif %}
+
+[sshd]
+enabled = true
+port    = {{ ssh_port }}
+mode    = aggressive

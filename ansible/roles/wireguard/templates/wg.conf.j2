@@ -1,0 +1,14 @@
+# Managed by ansible/roles/wireguard. Site-to-site: this cloud's private
+# network <-> {{ wireguard_peer }}'s. The private key lives only in
+# {{ wireguard_interface }}.key on this host (loaded by PostUp).
+[Interface]
+Address = {{ wireguard_address }}/{{ wireguard_cidr.split('/')[1] }}
+ListenPort = {{ wireguard_port }}
+PostUp = wg set %i private-key /etc/wireguard/{{ wireguard_interface }}.key
+
+[Peer]
+# {{ wireguard_peer }}
+PublicKey = {{ hostvars[wireguard_peer]['wireguard_public_key'] }}
+Endpoint = {{ wireguard_endpoint }}:{{ hostvars[wireguard_peer]['wireguard_port'] | default(wireguard_port) }}
+AllowedIPs = {{ hostvars[wireguard_peer]['wireguard_address'] }}/32, {{ remote_cidrs | join(', ') }}
+PersistentKeepalive = 25

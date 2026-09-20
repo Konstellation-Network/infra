@@ -1,20 +1,35 @@
 ---
-# Host-level ufw, mirroring the cloud firewalls in terraform/envs/testnet-1's
-# hetzner.tf/gcp.tf. Deliberately redundant with them: two independent layers
-# that both have to fail open for a host to be reachable it shouldn't be.
+# Host-level ufw for every host in the fleet, mirroring the cloud firewalls
+# in terraform/envs/testnet-1's hetzner.tf/gcp.tf. Deliberately redundant
+# with them: two independent layers that both have to fail open for a host
+# to be reachable it shouldn't be. On Hetzner this layer is not redundant
+# but PRIMARY for private-network traffic — hcloud firewalls only filter
+# the public interface, and validators/archive/monitoring/cosigners have
+# none (see hetzner.tf header).
 
-- name: Fail if bastion_ipv4 is unset
+- name: Fail if bastion_private_ip is unset (non-bastion hosts)
+  when: node_role != 'bastion'
   ansible.builtin.assert:
     that:
-      - bastion_ipv4 | length > 0
-    fail_msg: "bastion_ipv4 must be set — refusing to leave SSH unrestricted."
+      - bastion_private_ip | length > 0
+    fail_msg: "bastion_private_ip must be set — refusing to leave SSH unrestricted."
 
-- name: Fail if network_cidr is unset
+- name: Fail if operator_ssh_cidrs is unset while this bastion is an SSH entry point
+  when: node_role == 'bastion' and (ssh_entry | default(false) | bool)
+  ansible.builtin.assert:
+    that:
+      - operator_ssh_cidrs | length > 0
+      - "'0.0.0.0/0' not in operator_ssh_cidrs"
+      - "'::/0' not in operator_ssh_cidrs"
+    fail_msg: "operator_ssh_cidrs must list specific CIDRs — refusing to expose sshd to the internet."
+
+- name: Fail if network_cidr / fleet_cidrs are unset
   ansible.builtin.assert:
     that:
       - network_cidr | length > 0
+      - fleet_cidrs | length > 0
     fail_msg: >-
-      network_cidr must be set per-host by terraform's inventory output
+      network_cidr and fleet_cidrs must be set by terraform's inventory output
       (Hetzner and GCP have separate private networks) — refusing to guess.
 
 - name: Install ufw
@@ -33,22 +48,64 @@
     direction: outgoing
     policy: allow
 
-- name: Allow SSH from bastion only
+# --- SSH ---
+
+- name: Allow SSH from this cloud's bastion only
+  when: node_role != 'bastion'
   community.general.ufw:
     rule: allow
     port: "{{ ssh_port }}"
     proto: tcp
-    src: "{{ bastion_ipv4 }}"
+    src: "{{ bastion_private_ip }}"
 
-- name: Allow prometheus + node_exporter scrape from the private network only
+- name: Allow SSH from the entry bastion across the tunnel (single-entry topology)
+  when: node_role != 'bastion' and (ssh_entry_bastion_private_ip | default('') | length > 0)
   community.general.ufw:
     rule: allow
-    port: "{{ item }}"
+    port: "{{ ssh_port }}"
     proto: tcp
-    src: "{{ network_cidr }}"
-  loop:
-    - "{{ prometheus_port }}"
-    - "{{ node_exporter_port }}"
+    src: "{{ ssh_entry_bastion_private_ip }}"
+
+- name: Allow operator SSH to the bastion
+  when: node_role == 'bastion' and (ssh_entry | default(false) | bool)
+  community.general.ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ operator_ssh_cidrs }}"
+
+# A non-entry bastion still needs to be reachable by Ansible: through the
+# tunnel, from the entry bastion's private network.
+- name: Allow SSH to a non-entry bastion from the other cloud's private network
+  when: node_role == 'bastion' and not (ssh_entry | default(false) | bool)
+  community.general.ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ remote_cidrs }}"
+
+# --- Metrics (every host runs node_exporter; chain nodes also expose CometBFT metrics) ---
+
+- name: Allow node_exporter scrape from the fleet's private networks
+  community.general.ufw:
+    rule: allow
+    port: "{{ node_exporter_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ fleet_cidrs }}"
+
+- name: Allow CometBFT prometheus scrape from the fleet's private networks — chain nodes
+  when: node_role in ['validator', 'sentry', 'rpc', 'archive']
+  community.general.ufw:
+    rule: allow
+    port: "{{ prometheus_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ fleet_cidrs }}"
+
+# --- Chain traffic ---
 
 - name: Allow p2p (26656) from the private network only — validators
   when: node_role == 'validator'
@@ -80,13 +137,57 @@
   when: node_role == 'archive'
   community.general.ufw:
     rule: allow
-    port: "{{ item }}"
+    port: "{{ item.0 }}"
     proto: tcp
+    src: "{{ item.1 }}"
+  loop: "{{ ['26657', '1317', '8545:8546'] | product(fleet_cidrs) | list }}"
+
+# --- Horcrux, dedicated mode: cosigners dial validators' priv_validator_laddr
+#     and each other's raft/grpc port. Exact cosigner IPs, not CIDRs. ---
+
+- name: Allow priv_validator_laddr from the cosigners — validators, dedicated horcrux
+  when: node_role == 'validator' and horcrux_mode == 'dedicated'
+  community.general.ufw:
+    rule: allow
+    port: "{{ horcrux_privval_port }}"
+    proto: tcp
+    src: "{{ hostvars[item]['ansible_host'] }}"
+  loop: "{{ groups['cosigners'] | default([]) }}"
+
+- name: Allow cosigner-to-cosigner raft/grpc — cosigners
+  when: node_role == 'cosigner'
+  community.general.ufw:
+    rule: allow
+    port: "{{ horcrux_p2p_base_port }}:{{ horcrux_p2p_base_port + (groups['validators'] | length) - 1 }}"
+    proto: tcp
+    src: "{{ hostvars[item]['ansible_host'] }}"
+  loop: "{{ groups['cosigners'] | default([]) | difference([inventory_hostname]) }}"
+
+# --- Bastion: tunnel endpoint + router ---
+
+- name: Allow WireGuard from the peer bastion only
+  when: node_role == 'bastion' and wireguard_endpoint | length > 0
+  community.general.ufw:
+    rule: allow
+    port: "{{ wireguard_port }}"
+    proto: udp
+    src: "{{ wireguard_endpoint }}"
+
+- name: Allow routed traffic between this private network and the tunnel
+  when: node_role == 'bastion'
+  community.general.ufw:
+    rule: allow
+    route: true
+    src: "{{ item.0 }}"
+    dest: "{{ item.1 }}"
+  loop: "{{ ([network_cidr] | product(remote_cidrs) | list) + (remote_cidrs | product([network_cidr]) | list) }}"
+
+- name: Allow routed egress from the private network to the internet (NAT gateway)
+  when: node_role == 'bastion' and (nat_gateway | bool)
+  community.general.ufw:
+    rule: allow
+    route: true
     src: "{{ network_cidr }}"
-  loop:
-    - "26657"
-    - "1317"
-    - "8545:8546"
 
 - name: Enable ufw
   community.general.ufw:

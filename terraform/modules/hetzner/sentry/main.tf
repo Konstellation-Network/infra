@@ -22,7 +22,8 @@ resource "hcloud_server" "this" {
   }
 
   user_data = templatefile("${path.module}/../validator/cloud-init.yaml.tpl", {
-    ssh_public_key = var.ssh_public_key
+    ssh_public_key    = var.ssh_public_key
+    default_route_via = "" # public IP: normal default route
   })
 
   labels = merge(var.labels, {

@@ -1,0 +1,32 @@
+# Managed by ansible/roles/bastion. Drop-in wins over sshd_config for any
+# key set here (first value wins in sshd; Include is at the top of Debian's
+# sshd_config).
+Port {{ ssh_port }}
+Protocol 2
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PermitEmptyPasswords no
+UsePAM yes
+MaxAuthTries 3
+MaxSessions 10
+LoginGraceTime 20
+AllowUsers {{ ssh_user }}
+# ProxyJump needs TCP forwarding; nothing else.
+AllowTcpForwarding yes
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+PermitUserEnvironment no
+ClientAliveInterval 300
+ClientAliveCountMax 2
+LogLevel VERBOSE
+{% if not (ssh_entry | bool) %}
+# Not an operator entry point: only reachable across the tunnel, so bind to
+# the private address only. (The firewall role also closes 22 publicly.)
+ListenAddress {{ private_ip }}
+{% endif %}

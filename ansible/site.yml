@@ -1,14 +1,29 @@
 ---
 # Full fleet configuration. Idempotent — safe to re-run. Does not touch key
-# material (horcrux shards, priv_validator_key.json) beyond installing the
-# binary and an empty config skeleton; see ansible/roles/horcrux/tasks/main.yml.
+# material (horcrux shards, priv_validator_key.json, WireGuard private keys
+# beyond generating one in place on first run); see ansible/roles/horcrux
+# and ansible/roles/wireguard.
+#
+# Order matters: bastions first — every other host is only reachable
+# through them (ssh_config ProxyJump), and on Hetzner the private-only hosts
+# have no internet until the bastion's NAT is up.
 #
 # Usage:
-#   ansible-playbook site.yml --limit validators   # one group at a time is safer
-#   ansible-playbook site.yml                       # whole fleet
+#   ansible-playbook site.yml --limit bastions       # first, always
+#   ansible-playbook site.yml --limit validators     # one group at a time is safer
+#   ansible-playbook site.yml                        # whole fleet
 
-- name: Configure all konstellation-network nodes
-  hosts: all
+- name: Configure bastions (jump hosts, NAT egress, cross-cloud tunnel)
+  hosts: bastions
+  become: true
+  roles:
+    - firewall
+    - bastion
+    - wireguard  # both bastions must be in the play: they exchange public keys as facts
+    - monitoring # node_exporter
+
+- name: Configure all chain nodes (validators, sentries, rpc, archive)
+  hosts: chain_nodes
   become: true
   roles:
     - firewall
@@ -16,8 +31,26 @@
     - cosmovisor
     - monitoring
 
-- name: Configure horcrux cosigners
+- name: Configure horcrux cosigners — colocated mode, on the validator hosts
   hosts: validators
   become: true
   roles:
-    - horcrux
+    - role: horcrux
+      when: horcrux_mode == 'colocated'
+
+- name: Configure horcrux cosigners — dedicated mode, separate hosts
+  hosts: cosigners
+  become: true
+  roles:
+    - firewall
+    - monitoring
+    - role: horcrux
+      when: horcrux_mode == 'dedicated'
+
+- name: Configure the monitoring host — prometheus, alertmanager, grafana, tenderduty
+  hosts: monitoring
+  become: true
+  roles:
+    - firewall
+    - monitoring
+    - monitoring_server

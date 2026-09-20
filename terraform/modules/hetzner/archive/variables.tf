@@ -42,3 +42,9 @@ variable "labels" {
   type    = map(string)
   default = {}
 }
+
+variable "default_route_via" {
+  description = "Private-network gateway (first address of the hcloud_network range) to install as the default route on this public-IP-less host, so it egresses through the bastion's NAT (modules/hetzner/bastion). Empty = leave routing alone (host has no internet access)."
+  type        = string
+  default     = ""
+}

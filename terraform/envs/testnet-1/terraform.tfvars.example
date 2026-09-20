@@ -4,7 +4,20 @@
 # or GOOGLE_APPLICATION_CREDENTIALS pointing at a service account key file.
 
 ssh_public_key = "ssh-ed25519 AAAA... deploy@bootstrap"
-bastion_ipv4   = "203.0.113.10/32"
+
+# Operator workstations / VPN egress allowed to SSH to the bastion(s). One /32
+# per person. Never 0.0.0.0/0 (validated).
+operator_ssh_cidrs = ["203.0.113.10/32"]
+
+# Topology decisions — defaults documented in variables.tf and README.md.
+# bastion_ssh_entry = "per-cloud"   # or "hetzner" / "gcp": one internet-facing sshd
+# monitoring_cloud  = "gcp"
+# horcrux_mode      = "colocated"   # "dedicated" provisions cosigner_placement
+# cosigner_placement = [
+#   { cloud = "hetzner", location = "fsn1" },
+#   { cloud = "gcp", zone = "us-central1-b" },
+#   { cloud = "hetzner", location = "hel1" },
+# ]
 
 hetzner_ssh_key_ids = ["your-hcloud-ssh-key-id"]
 hetzner_locations   = ["fsn1", "hel1", "ash"]
