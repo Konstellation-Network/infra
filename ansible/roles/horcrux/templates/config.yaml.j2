@@ -1,9 +1,21 @@
+# Managed by ansible/roles/horcrux — instance {{ instance.name }} ({{ horcrux_mode }}).
+# Topology only. Shard ({{ chain_id }}_shard.json) and ecies_keys.json are
+# placed by hand after the key ceremony.
 signMode: threshold
 thresholdMode:
   threshold: {{ horcrux_threshold }}
   cosigners:
-    # Filled in by hand once cosigner hosts/ports are finalized — deliberately
-    # not templated from the terraform inventory yet (see tasks/main.yml).
+{% if instance.cosigners | length == 0 %}
+    # colocated mode: filled in by hand once cosigner hosts/ports are
+    # finalised — deliberately not templated (see tasks/main.yml).
     []
+{% else %}
+{% for c in instance.cosigners | sort(attribute='shard_id') %}
+    - shardID: {{ c.shard_id }}
+      p2pAddr: tcp://{{ c.ansible_host }}:{{ c.p2p_port }}
+{% endfor %}
+{% endif %}
+  grpcTimeout: {{ horcrux_grpc_timeout }}
+  raftTimeout: {{ horcrux_raft_timeout }}
 chainNodes:
-  - privValAddr: tcp://0.0.0.0:1234
+  - privValAddr: {{ instance.privval_addr }}

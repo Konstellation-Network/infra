@@ -213,6 +213,21 @@
     - { option: "private_peer_ids", value: '"{{ private_peer_ids }}"' }
   notify: Restart cosmovisor
 
+# priv_validator_laddr is a top-level key in config.toml (no section).
+# Colocated horcrux talks over loopback; dedicated cosigners dial the
+# private IP (cloud firewall + ufw admit only the cosigner IPs on 1234).
+- name: Reconcile config.toml priv_validator_laddr (horcrux remote signer) — validators
+  when: node_role == 'validator'
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/config.toml"
+    section: null
+    option: priv_validator_laddr
+    value: '"{{ ("tcp://" ~ ("127.0.0.1" if horcrux_mode == "colocated" else ansible_host) ~ ":" ~ horcrux_privval_port) if horcrux_enabled else "" }}"'
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  notify: Restart cosmovisor
+
 - name: Reconcile config.toml [instrumentation]
   community.general.ini_file:
     path: "{{ daemon_home }}/config/config.toml"

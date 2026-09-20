@@ -1,8 +1,27 @@
 ---
 konstellation_user: konstellation
 konstellation_group: konstellation
+chain_id: testnet-1
 horcrux_version: "v3.3.0"
 horcrux_sha256: ""
 horcrux_home: /home/konstellation/.horcrux
 horcrux_threshold: 2
 horcrux_shares: 3
+
+# colocated (testnet-1 default) — this role runs on the validator hosts;
+#            one instance per host, cosigner list filled in by hand.
+# dedicated  — this role runs on the `cosigners` group; one instance per
+#            validator on every cosigner host, cosigner list built from the
+#            inventory. terraform/envs/<net> var.horcrux_mode.
+horcrux_mode: colocated
+
+# The port the validator's config.toml priv_validator_laddr listens on and
+# every cosigner dials (ansible/roles/node sets the listener when
+# horcrux_enabled is true on that validator).
+horcrux_privval_port: 1234
+# Dedicated mode: instance i (validator order in the inventory) uses
+# p2p port base+i on every cosigner host, so the same instance name maps to
+# the same port fleet-wide.
+horcrux_p2p_base_port: 2222
+horcrux_grpc_timeout: 1000ms
+horcrux_raft_timeout: 1000ms

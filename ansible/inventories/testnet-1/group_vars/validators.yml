@@ -12,3 +12,8 @@ pruning_keep_recent: "100"
 pruning_interval: "10"
 
 public_ip: false
+
+# Remote signing via horcrux. Off until the key ceremony has happened for
+# this validator — then flip it in host_vars for that validator only (see
+# ansible/roles/node/defaults/main.yml and runbooks/validator-key-rotation.md).
+horcrux_enabled: false

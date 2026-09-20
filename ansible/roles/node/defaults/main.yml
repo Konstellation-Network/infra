@@ -31,8 +31,20 @@ prometheus_port: 26660
 
 mempool_type: app
 public_ip: true
+node_role: rpc
 
 jsonrpc_enabled: false
 evm_tracer_enabled: false
 
 local_ssd_count: 0
+
+# Horcrux remote signing (validators only; ansible/roles/horcrux). false =
+# the node signs with its own priv_validator_key.json. true = config.toml
+# priv_validator_laddr is set and the node WAITS for a cosigner to connect
+# before it will sign — flip per validator only after the key ceremony
+# (runbooks/validator-key-rotation.md). ENGINEERING.md §2.7: the local
+# priv_validator_key.json must be gone from the host before a remote signer
+# for the same key is live.
+horcrux_enabled: false
+horcrux_mode: colocated
+horcrux_privval_port: 1234

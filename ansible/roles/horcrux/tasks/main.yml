@@ -2,23 +2,52 @@
 # Installs the horcrux binary and lays out config *structure* only.
 #
 # What this role deliberately does NOT do: generate, place, or move any key
-# share. `horcrux create-ed25519-shares` / the threshold key ceremony is a
-# manual, offline, one-time operation run by a human across the cosigner
-# machines, with the operator verifying each shard lands on the host it was
-# generated for. ENGINEERING.md §2.7: double-signing is unrecoverable and
-# slashes 5% of stake — automating key material movement through a playbook
-# (which gets logged, retried, and diffed) is the wrong trust boundary for it.
+# share. `horcrux create-ed25519-shards` / `create-ecies-shards` — the
+# threshold key ceremony — is a manual, offline, one-time operation run by a
+# human, with the operator verifying each shard lands on the host it was
+# generated for (runbooks/validator-key-rotation.md). ENGINEERING.md §2.7:
+# double-signing is unrecoverable and slashes 5% of stake — automating key
+# material movement through a playbook (which gets logged, retried, and
+# diffed) is the wrong trust boundary for it.
 #
-# Also note: this scaffold co-locates the horcrux cosigner with the validator
-# host, which is a simplification. ENGINEERING.md §9.2 calls for cosigners
-# spread across 3+ regions on separate hosts; that's a follow-up (see infra
-# README "known gaps"), not yet reflected in terraform/envs/testnet-1.
+# Two modes (horcrux_mode, from terraform's inventory output):
+#   colocated — runs on the validator hosts. One instance, home
+#               {{ horcrux_home }}/{{ chain_id }}, cosigners list empty
+#               (filled in by hand). The original scaffold; testnet-1 default.
+#   dedicated — runs on the `cosigners` group. One instance PER VALIDATOR on
+#               every cosigner host (a 5-validator fleet = 5 instances per
+#               host), home {{ horcrux_home }}/<validator hostname>, p2p
+#               port horcrux_p2p_base_port + validator index, cosigner list
+#               = every host in `cosigners` with its shard_id from the
+#               inventory. ENGINEERING.md §9.2; mandatory for mainnet (§18).
+#
+# Either way every instance's systemd unit is installed DISABLED and stays
+# so until a shard exists in its home.
 
 - name: Fail if horcrux_sha256 is unset
   ansible.builtin.assert:
     that:
       - horcrux_sha256 | length > 0
     fail_msg: "horcrux_sha256 must be set — never install horcrux unverified."
+
+- name: Fail if this host is the wrong kind for the mode
+  ansible.builtin.assert:
+    that:
+      - (horcrux_mode == 'colocated' and inventory_hostname in groups['validators'])
+        or (horcrux_mode == 'dedicated' and inventory_hostname in groups['cosigners'])
+    fail_msg: >-
+      horcrux_mode={{ horcrux_mode }} but {{ inventory_hostname }} is not in the
+      matching group — site.yml targets the wrong hosts for this mode.
+
+- name: Fail if the cosigner count does not match horcrux_shares (dedicated)
+  when: horcrux_mode == 'dedicated'
+  ansible.builtin.assert:
+    that:
+      - groups['cosigners'] | length == horcrux_shares
+    fail_msg: >-
+      {{ groups['cosigners'] | length }} cosigner hosts in the inventory but
+      horcrux_shares={{ horcrux_shares }} — cosigner_placement (terraform) and
+      horcrux_shares must agree.
 
 - name: Download and verify horcrux {{ horcrux_version }}
   ansible.builtin.get_url:
@@ -37,44 +66,102 @@
     group: root
     mode: "0755"
 
-- name: Create horcrux home
+# --- instances ---
+
+- name: Build the instance list (colocated)
+  when: horcrux_mode == 'colocated'
+  ansible.builtin.set_fact:
+    horcrux_instances:
+      - name: "{{ chain_id }}"
+        privval_addr: "tcp://127.0.0.1:{{ horcrux_privval_port }}"
+        p2p_port: "{{ horcrux_p2p_base_port }}"
+        cosigners: []
+
+- name: Collect the cosigner hosts (dedicated)
+  when: horcrux_mode == 'dedicated'
+  ansible.builtin.set_fact:
+    horcrux_cosigner_hosts: >-
+      {{ horcrux_cosigner_hosts | default([]) + [{
+           'shard_id': hostvars[item]['shard_id'],
+           'ansible_host': hostvars[item]['ansible_host']
+         }] }}
+  loop: "{{ groups['cosigners'] }}"
+
+- name: Build the instance list (dedicated — one per validator)
+  when: horcrux_mode == 'dedicated'
+  ansible.builtin.set_fact:
+    horcrux_instances: >-
+      {{ horcrux_instances | default([]) + [{
+           'name': item,
+           'privval_addr': 'tcp://' ~ hostvars[item]['ansible_host'] ~ ':' ~ horcrux_privval_port,
+           'p2p_port': horcrux_p2p_base_port + idx,
+           'cosigners': horcrux_cosigner_hosts | map('combine', {'p2p_port': horcrux_p2p_base_port + idx}) | list
+         }] }}
+  loop: "{{ groups['validators'] | sort }}"
+  loop_control:
+    index_var: idx
+
+- name: Create the base horcrux home
   ansible.builtin.file:
     path: "{{ horcrux_home }}"
     state: directory
     owner: "{{ konstellation_user }}"
     group: "{{ konstellation_group }}"
-    mode: "0700"  # key material directory — no group/other access, ever
+    mode: "0700"
 
-- name: Template horcrux config.yaml (chain params + threshold topology, no keys)
+- name: Create per-instance homes (key material directories — no group/other access, ever)
+  ansible.builtin.file:
+    path: "{{ horcrux_home }}/{{ item.name }}"
+    state: directory
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0700"
+  loop: "{{ horcrux_instances }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Template each instance's config.yaml (topology only, no keys)
   ansible.builtin.template:
     src: config.yaml.j2
-    dest: "{{ horcrux_home }}/config.yaml"
+    dest: "{{ horcrux_home }}/{{ item.name }}/config.yaml"
     owner: "{{ konstellation_user }}"
     group: "{{ konstellation_group }}"
     mode: "0600"
+  loop: "{{ horcrux_instances }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    instance: "{{ item }}"
 
-- name: Install horcrux systemd unit (disabled until keys are placed by hand)
+- name: Install the horcrux@ systemd template unit (instances stay disabled until keys are placed by hand)
   ansible.builtin.template:
-    src: horcrux.service.j2
-    dest: /etc/systemd/system/horcrux.service
+    src: horcrux@.service.j2
+    dest: /etc/systemd/system/horcrux@.service
     owner: root
     group: root
     mode: "0644"
-
-- name: Check whether a key shard already exists on this host
-  ansible.builtin.stat:
-    path: "{{ horcrux_home }}/{{ chain_id }}_shard.json"
-  register: horcrux_shard
 
 - name: Reload systemd
   ansible.builtin.systemd:
     daemon_reload: true
 
-- name: Warn that horcrux is not enabled yet
-  when: not horcrux_shard.stat.exists
+- name: Check which instances already hold a shard
+  ansible.builtin.stat:
+    path: "{{ horcrux_home }}/{{ item.name }}/{{ chain_id }}_shard.json"
+  register: horcrux_shards
+  loop: "{{ horcrux_instances }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Warn about instances without a shard
+  when: not item.stat.exists
   ansible.builtin.debug:
     msg: >-
-      No key shard found at {{ horcrux_home }}/{{ chain_id }}_shard.json.
-      horcrux.service is installed but left disabled/stopped. Run the
-      threshold key ceremony by hand, place the shard, then enable+start
-      the service manually. This task will not do it for you.
+      No key shard at {{ horcrux_home }}/{{ item.item.name }}/{{ chain_id }}_shard.json.
+      horcrux@{{ item.item.name }}.service is installed but left disabled/stopped.
+      Run the threshold key ceremony by hand (runbooks/validator-key-rotation.md),
+      place the shard and ecies_keys.json, then `systemctl enable --now
+      horcrux@{{ item.item.name }}`. This task will not do it for you.
+  loop: "{{ horcrux_shards.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
