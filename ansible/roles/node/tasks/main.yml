@@ -149,14 +149,23 @@
     group: "{{ konstellation_group }}"
     mode: "0755"
 
-- name: Symlink cosmovisor current -> genesis on first install
+# `file: state=link force=false` is NOT a guard: force only governs replacing
+# a regular file, and an existing symlink with another target is re-pointed
+# every run — i.e. every site.yml after an upgrade would have rolled
+# `current` back to genesis (found in review, 2026-09-21). Hence the stat.
+- name: Check whether cosmovisor current already points somewhere
+  ansible.builtin.stat:
+    path: "{{ daemon_home }}/cosmovisor/current"
+  register: cosmovisor_current_link
+
+- name: Symlink cosmovisor current -> genesis on first install only
+  when: not cosmovisor_current_link.stat.exists
   ansible.builtin.file:
     src: "{{ daemon_home }}/cosmovisor/genesis"
     dest: "{{ daemon_home }}/cosmovisor/current"
     state: link
     owner: "{{ konstellation_user }}"
     group: "{{ konstellation_group }}"
-    force: false  # never clobber an existing symlink — that's how a running upgrade gets rolled back by accident
 
 # --- genesis (idempotent: only runs `init` if config.toml doesn't exist yet) ---
 
@@ -228,6 +237,23 @@
     mode: "0644"
   notify: Restart cosmovisor
 
+# CometBFT RPC: init writes tcp://127.0.0.1:26657. Validators keep that;
+# sentries/rpc/archive bind 0.0.0.0 so tenderduty (monitoring host), the
+# public RPC and Blockscout can reach them — reachability is then the cloud
+# firewall + ufw (26657 on sentries: monitoring host only). Found in review:
+# tenderduty had nothing to talk to and the "public RPC node" served only
+# JSON-RPC.
+- name: Reconcile config.toml [rpc] laddr
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/config.toml"
+    section: rpc
+    option: laddr
+    value: '"tcp://{{ rpc_bind_address }}:26657"'
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  notify: Restart cosmovisor
+
 - name: Reconcile config.toml [instrumentation]
   community.general.ini_file:
     path: "{{ daemon_home }}/config/config.toml"
@@ -267,6 +293,35 @@
     - { option: "pruning-keep-recent", value: '"{{ pruning_keep_recent }}"' }
     - { option: "pruning-interval", value: '"{{ pruning_interval }}"' }
   when: pruning != "default"
+  notify: Restart cosmovisor
+
+- name: Reconcile app.toml [api] (REST on 1317 — rpc and archive nodes only)
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/app.toml"
+    section: api
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  loop:
+    - { option: "enable", value: "{{ api_enabled | lower }}" }
+    - { option: "address", value: '"tcp://{{ rpc_bind_address }}:1317"' }
+  notify: Restart cosmovisor
+
+# Node-local mempool floor, not a protocol parameter (TOKENOMICS.md §3: no
+# protocol floor, base fee may decay to 0). init writes 0esp; the public
+# RPC node sets a floor in group_vars/rpc.yml so its open mempool is not a
+# free spam target.
+- name: Reconcile app.toml minimum-gas-prices
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/app.toml"
+    section: null
+    option: minimum-gas-prices
+    value: '"{{ minimum_gas_prices }}"'
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
   notify: Restart cosmovisor
 
 - name: Reconcile app.toml [json-rpc]

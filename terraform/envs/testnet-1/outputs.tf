@@ -141,7 +141,6 @@ locals {
       }
     }
   )
-  monitoring_host_private_ip = one(values(local.inventory_monitoring)).private_ip
 
   # Empty in colocated mode. Keys c1..cN are the shard order.
   inventory_cosigners = merge(

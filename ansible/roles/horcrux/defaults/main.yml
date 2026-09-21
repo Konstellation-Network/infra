@@ -4,6 +4,9 @@ konstellation_group: konstellation
 chain_id: testnet-1
 horcrux_version: "v3.3.0"
 horcrux_sha256: ""
+# v3.x releases ship a bare binary per arch plus horcrux_sha256.txt (gh api,
+# 2026-09-21) — no tarball. Take the sha256 from that file.
+horcrux_release_url: "https://github.com/strangelove-ventures/horcrux/releases/download/{{ horcrux_version }}/horcrux_linux-amd64"
 horcrux_home: /home/konstellation/.horcrux
 horcrux_threshold: 2
 horcrux_shares: 3

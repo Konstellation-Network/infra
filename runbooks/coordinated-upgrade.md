@@ -12,7 +12,7 @@ between the networks is *how the height reaches the nodes*:
 | | testnet-1 | konstellation-1 |
 |---|---|---|
 | Height is set by | `ansible-playbook` (binary staged, and — because there is no proposal — `halt-height`, or a gov proposal if the drill is rehearsing mainnet) | `MsgSoftwareUpgrade` via governance (`x/upgrade`); cosmovisor reads the plan from the chain |
-| Operators | us | 7+ independent operators; the operator channel (`incident-comms.md`) |
+| Operators | us (10 foundation-run validators, D7) | the same 10 foundation validators plus any operator admitted via D16 (`validator-admission.md`); the operator channel (`incident-comms.md`) |
 | Notice | hours (`§18`: 2 h voting period) | days (3 d voting period, D11) |
 
 **Cosmovisor auto-download is OFF everywhere** (`§9.2`); every binary is
@@ -86,9 +86,12 @@ is a stop-the-upgrade finding.
 Mainnet — governance:
 
 ```sh
+# --no-validate: the CLI otherwise insists on a `binaries` map in
+# --upgrade-info, which exists only for cosmovisor auto-download — OFF
+# here (§9.2). The binary URL and sha256 live in the upgrade file.
 konstellationd tx upgrade software-upgrade <name> \
   --upgrade-height <H> \
-  --upgrade-info '{"binaries":{}}' \
+  --no-validate \
   --title "<name>" --summary "<link to the upgrade file>" \
   --deposit 1000000000000000000000esp \
   --from <proposer> --node <rpc>
@@ -111,7 +114,13 @@ path at least once on testnet — it is the one mainnet uses.
 - Snapshot on state-breaking upgrades: `konstellationd snapshots export`
   on one archive node at H−1 (or a filesystem snapshot of `data/` with the
   node stopped). The rollback section of the upgrade file says whether this
-  is required; for state-breaking it is.
+  is required; for state-breaking it is — and it is the **only** backup:
+  cosmovisor runs with `UNSAFE_SKIP_BACKUP=true`
+  (`ansible/roles/cosmovisor/templates/cosmovisor.service.j2`) because its
+  own pre-upgrade backup copies the whole `data/` directory into
+  `DAEMON_HOME` on the boot disk, which on a GCP validator is 50 GB next to
+  a 3 TB data volume. Do not skip this step on the strength of cosmovisor
+  "backing up".
 - The on-call for the window is named in the channel, with a second
   engineer. Both have the bastion reachable and the runbook open.
 - Confirm `DiskHeadroomLow` is not firing anywhere — a migration needs

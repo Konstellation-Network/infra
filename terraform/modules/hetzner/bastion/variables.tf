@@ -7,6 +7,7 @@ variable "location" {
   type = string
 }
 
+
 variable "server_type" {
   description = "Small shared-vCPU type is plenty: sshd, NAT forwarding and one WireGuard tunnel. Not a node."
   type        = string

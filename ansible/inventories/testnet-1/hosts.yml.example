@@ -84,7 +84,6 @@ all:
       hosts:
         testnet-1-hetzner-bastion:
           ansible_host: 203.0.113.5
-          ansible_ssh_common_args: ""
           public_ipv4: 203.0.113.5
           private_ip: 10.0.1.5
           cloud: hetzner
@@ -100,7 +99,6 @@ all:
             - 10.0.2.0/24
         testnet-1-gcp-bastion:
           ansible_host: 198.51.100.5
-          ansible_ssh_common_args: ""
           public_ipv4: 198.51.100.5
           private_ip: 10.0.2.5
           cloud: gcp

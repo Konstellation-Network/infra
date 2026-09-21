@@ -19,7 +19,7 @@ resource "hcloud_network" "testnet_1" {
 resource "hcloud_network_subnet" "testnet_1" {
   network_id   = hcloud_network.testnet_1.id
   type         = "cloud"
-  network_zone = "eu-central"
+  network_zone = var.hetzner_network_zone
   ip_range     = var.hetzner_network_ip_range
 }
 
@@ -90,6 +90,16 @@ resource "hcloud_firewall" "sentry" {
     protocol   = "tcp"
     port       = "26656"
     source_ips = ["0.0.0.0/0", "::/0"]
+  }
+
+  # CometBFT RPC for tenderduty (roles/monitoring_server): the monitoring
+  # host only. rpc.laddr binds 0.0.0.0 on sentries (roles/node) and this
+  # plus ufw is what keeps it off the internet.
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "26657"
+    source_ips = ["${local.monitoring_host_private_ip}/32"]
   }
 
   rule {

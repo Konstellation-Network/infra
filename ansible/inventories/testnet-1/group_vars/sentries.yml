@@ -11,3 +11,6 @@ pruning_keep_recent: "100"
 pruning_interval: "10"
 
 public_ip: true
+# CometBFT RPC bound on all interfaces so tenderduty (monitoring host) can
+# query it; the cloud firewall + ufw admit 26657 from the monitoring host only.
+rpc_bind_address: "0.0.0.0"

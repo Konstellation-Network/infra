@@ -43,10 +43,12 @@ enable anything key-shaped — that is this section, done by a human.
    its directory.
 3. **Place each shard on its cosigner**, over the bastion, one at a time:
    ```sh
-   scp -F ansible/inventories/<net>/ssh_config cosigner_1/* <cosigner-host-1>:/tmp/
+   # never through /tmp (world-readable): a 0700 staging dir in deploy's home
+   ssh -F ansible/inventories/<net>/ssh_config <cosigner-host-1> 'mkdir -m 0700 -p ~/ceremony'
+   scp -F ansible/inventories/<net>/ssh_config cosigner_1/* <cosigner-host-1>:~/ceremony/
    ssh -F ansible/inventories/<net>/ssh_config <cosigner-host-1> \
-     'sudo install -o konstellation -g konstellation -m 0600 /tmp/<net>_shard.json /tmp/ecies_keys.json \
-        /home/konstellation/.horcrux/<instance>/ && shred -u /tmp/<net>_shard.json /tmp/ecies_keys.json'
+     'sudo install -o konstellation -g konstellation -m 0600 ~/ceremony/<net>_shard.json ~/ceremony/ecies_keys.json \
+        /home/konstellation/.horcrux/<instance>/ && shred -u ~/ceremony/* && rmdir ~/ceremony'
    ```
    `<instance>` is the validator's inventory hostname in dedicated mode,
    `<net>` in colocated mode (`ansible/roles/horcrux/tasks/main.yml`).

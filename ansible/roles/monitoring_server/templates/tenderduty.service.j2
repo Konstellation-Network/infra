@@ -15,6 +15,7 @@ ExecStartPre=/usr/bin/docker pull {{ tenderduty_image }}{{ '@' + tenderduty_imag
 # --network host rather than a bridge (+ a route for the far cloud).
 ExecStart=/usr/bin/docker run --rm --name tenderduty \
   --network host \
+  --user {{ tenderduty_uid }}:{{ tenderduty_uid }} \
   -v {{ tenderduty_dir }}:/var/lib/tenderduty:ro \
   -v {{ monitoring_data_dir }}/tenderduty:/state \
   {{ tenderduty_image }}{{ '@' + tenderduty_image_digest if tenderduty_image_digest | length > 0 else '' }} \

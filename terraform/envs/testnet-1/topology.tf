@@ -2,14 +2,26 @@
 # agree on. Read README.md "Cross-cloud connectivity" for the picture.
 
 locals {
+  # Which Hetzner locations belong to which network zone (hcloud docs).
+  # Consulted by the hetzner_locations validation in variables.tf.
+  hetzner_zone_locations = {
+    eu-central   = ["fsn1", "nbg1", "hel1"]
+    us-east      = ["ash"]
+    us-west      = ["hil"]
+    ap-southeast = ["sin"]
+  }
+
   # Both private networks. Internal-only rules (metrics scrape, archive RPC,
   # horcrux) admit the whole fleet, not just the local subnet, because the
   # monitoring host and cosigners may sit in either cloud and reach the other
   # through the bastions' tunnel with their real source IP (routed, not NAT'd).
   fleet_cidrs = [var.hetzner_network_ip_range, var.gcp_network_ip_range]
 
-  # Archive nodes' RPC/REST/JSON-RPC: the fleet plus the explorer backend.
-  archive_rpc_cidrs = distinct(concat(local.fleet_cidrs, var.explorer_cidrs))
+  # Archive nodes' RPC/REST/JSON-RPC (debug tracing included): only the
+  # monitoring host and the explorer backend — never the whole fleet, which
+  # includes hosts with public interfaces.
+  archive_rpc_cidrs          = distinct(concat(["${local.monitoring_host_private_ip}/32"], var.explorer_cidrs))
+  monitoring_host_private_ip = var.monitoring_cloud == "gcp" ? local.gcp_monitoring_private_ip : local.hetzner_monitoring_private_ip
 
   # Hetzner's private-network gateway is always the first address of the
   # network range; private-only Hetzner hosts point their default route at it

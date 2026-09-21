@@ -43,6 +43,13 @@ evm_tracer_enabled: false
 # Blockscout stack can reach debug_traceTransaction — found live by the
 # explorer deployment, 2026-09-20. ws-origins is left as init wrote it.
 jsonrpc_bind_address: "127.0.0.1"
+# CometBFT RPC (26657) and REST API (1317) bind; see the [rpc] task in
+# tasks/main.yml. 127.0.0.1 on validators, 0.0.0.0 elsewhere (firewalled).
+rpc_bind_address: "127.0.0.1"
+api_enabled: false
+# app.toml minimum-gas-prices, node-local. init writes 0esp (TOKENOMICS.md
+# §3); the public rpc group overrides.
+minimum_gas_prices: "0esp"
 jsonrpc_port: 8545
 jsonrpc_ws_port: 8546
 

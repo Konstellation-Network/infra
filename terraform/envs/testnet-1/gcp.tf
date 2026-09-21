@@ -127,6 +127,20 @@ resource "google_compute_firewall" "p2p_validator" {
 
 # Public rules: the provider requires an explicit source; 0.0.0.0/0 here is
 # the intent (the original scaffold omitted it, which fails at plan).
+# CometBFT RPC on sentries for tenderduty: the monitoring host only.
+resource "google_compute_firewall" "sentry_rpc_monitoring" {
+  name          = "testnet-1-gcp-sentry-rpc-monitoring"
+  network       = google_compute_network.testnet_1.id
+  direction     = "INGRESS"
+  source_ranges = ["${local.monitoring_host_private_ip}/32"]
+  target_tags   = ["sentry"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["26657"]
+  }
+}
+
 resource "google_compute_firewall" "p2p_sentry" {
   name          = "testnet-1-gcp-p2p-sentry"
   network       = google_compute_network.testnet_1.id
@@ -168,9 +182,9 @@ resource "google_compute_firewall" "rpc_public" {
   }
 }
 
-# The fleet's private networks plus the explorer backend (var.explorer_cidrs);
-# the JSON-RPC bind itself is the node's private address (ansible
-# group_vars/archive.yml), never 0.0.0.0.
+# The monitoring host plus the explorer backend (var.explorer_cidrs) — not
+# the fleet, which includes hosts with public interfaces; the JSON-RPC bind
+# itself is the node's private address (ansible group_vars/archive.yml).
 resource "google_compute_firewall" "archive_internal" {
   name          = "testnet-1-gcp-archive-internal"
   network       = google_compute_network.testnet_1.id
@@ -252,6 +266,7 @@ module "gcp_bastion" {
 
   name           = "testnet-1-gcp-bastion"
   zone           = var.gcp_zones[0]
+  region         = var.gcp_region
   network        = google_compute_network.testnet_1.id
   subnetwork     = google_compute_subnetwork.testnet_1.id
   private_ip     = local.gcp_bastion_private_ip

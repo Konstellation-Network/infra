@@ -49,19 +49,11 @@
       horcrux_shares={{ horcrux_shares }} — cosigner_placement (terraform) and
       horcrux_shares must agree.
 
-- name: Download and verify horcrux {{ horcrux_version }}
+- name: Download and verify the bare horcrux binary {{ horcrux_version }}
   ansible.builtin.get_url:
-    url: "https://github.com/strangelove-ventures/horcrux/releases/download/{{ horcrux_version }}/horcrux_{{ horcrux_version }}_linux_amd64.tar.gz"
-    dest: /tmp/horcrux.tar.gz
+    url: "{{ horcrux_release_url }}"
+    dest: /usr/local/bin/horcrux
     checksum: "sha256:{{ horcrux_sha256 }}"
-    mode: "0644"
-
-- name: Extract horcrux binary
-  ansible.builtin.unarchive:
-    src: /tmp/horcrux.tar.gz
-    dest: /usr/local/bin
-    remote_src: true
-    extra_opts: ["horcrux"]
     owner: root
     group: root
     mode: "0755"

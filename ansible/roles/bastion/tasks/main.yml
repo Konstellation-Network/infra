@@ -71,12 +71,9 @@
       - bastion_public_interface | length > 0
     fail_msg: "Could not determine the public interface; set public_interface explicitly."
 
-- name: Allow forwarding in ufw's default policy
-  ansible.builtin.lineinfile:
-    path: /etc/default/ufw
-    regexp: '^DEFAULT_FORWARD_POLICY='
-    line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
-  notify: Reload ufw
+# DEFAULT_FORWARD_POLICY stays DROP (Debian default): the `ufw route allow`
+# rules in roles/firewall are the whole forwarding policy. ACCEPT here would
+# make them dead code and forward anything (review, 2026-09-21).
 
 # Hetzner: the private network's 0.0.0.0/0 route points here
 # (hcloud_network_route in the bastion module). Masquerade what comes in

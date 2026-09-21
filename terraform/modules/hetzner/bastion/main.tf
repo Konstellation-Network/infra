@@ -23,6 +23,17 @@
 # are therefore effective; private-network traffic through this host is
 # governed by ufw (ansible/roles/firewall, node_role=bastion).
 
+# The tunnel endpoint the other cloud's bastion dials and the address in
+# operators' ssh_config: a primary IP that outlives the server, so a
+# rebuild never changes it (auto_delete = false).
+resource "hcloud_primary_ip" "ipv4" {
+  name        = "${var.name}-ipv4"
+  type        = "ipv4"
+  location    = var.location
+  auto_delete = false
+  labels      = var.labels
+}
+
 resource "hcloud_server" "this" {
   name         = var.name
   location     = var.location
@@ -33,6 +44,7 @@ resource "hcloud_server" "this" {
 
   public_net {
     ipv4_enabled = true
+    ipv4         = hcloud_primary_ip.ipv4.id
     ipv6_enabled = true
   }
 

@@ -71,9 +71,9 @@ all:
 %{ for name, b in bastions ~}
         ${b.hostname}:
 %{ if b.ssh_entry ~}
-          # an entry bastion is reached directly on its public IP, not via ProxyJump
+          # an entry bastion is reached directly on its public IP; ssh_config
+          # has a direct Host block for it (no ProxyJump), so -F still applies
           ansible_host: ${b.public_ipv4}
-          ansible_ssh_common_args: ""
 %{ else ~}
           # not an entry point: reached on its private IP through the entry bastion and the tunnel
           ansible_host: ${b.private_ip}

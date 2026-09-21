@@ -42,6 +42,9 @@ tenderduty_image: "ghcr.io/blockpane/tenderduty:latest"
 tenderduty_image_digest: ""
 tenderduty_require_digest: false
 tenderduty_dir: /etc/tenderduty
+# The image runs as uid/gid 26657; config and state must be readable/
+# writable by it (review, 2026-09-21: root-owned 0600/0750 = a restart loop).
+tenderduty_uid: 26657
 tenderduty_dashboard_port: 8888
 tenderduty_prometheus_port: 28686
 # The validators tenderduty watches: one entry per validator with the

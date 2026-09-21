@@ -48,14 +48,20 @@ groups:
         annotations:
           summary: "{{ $labels.instance }} has fewer than 2 peers"
 
+      # Expected block time is ~1.5 s (ENGINEERING.md §18 blocks_per_year
+      # estimate), i.e. ~0.67 blocks/s. Page when the observed rate falls
+      # below half of that — 0.33 blocks/s, a 3 s block time — for 10 min.
+      # Re-derive the threshold from testnet-1's measured block time when
+      # blocks_per_year is (§18); an earlier version assumed 1 block/min
+      # and would have fired forever.
       - alert: BlockTimeDrift
         expr: |
-          abs(rate(cometbft_consensus_height[5m]) * 60 - 1) > 0.5
+          rate(cometbft_consensus_height[5m]) > 0 and rate(cometbft_consensus_height[5m]) < 0.33
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "{{ $labels.instance }} block production rate is more than 50% off the ~1/min target"
+          summary: "{{ $labels.instance }} is producing blocks at less than half the expected ~0.67/s rate (block time > 3 s)"
 
       - alert: DiskHeadroomLow
         expr: node_filesystem_avail_bytes{mountpoint=~"/|/home.*"} / node_filesystem_size_bytes{mountpoint=~"/|/home.*"} < 0.15

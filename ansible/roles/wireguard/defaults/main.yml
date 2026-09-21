@@ -9,3 +9,4 @@ wireguard_peer: ""      # inventory hostname of the other bastion
 wireguard_endpoint: ""  # the other bastion's public IP
 remote_cidrs: []        # the other cloud's private network(s), routed via the tunnel
 network_cidr: ""        # this cloud's private network, advertised to the peer
+private_ip: ""          # this bastion's private-network address: the source for traffic it originates across the tunnel

@@ -10,6 +10,15 @@
 # host out of the egress path means a bastion reboot doesn't take apt away
 # from the validators.
 
+# Static external address: the tunnel endpoint the Hetzner bastion dials
+# and the address in operators' ssh_config. An ephemeral one would change
+# on every stop/start and silently break both.
+resource "google_compute_address" "ipv4" {
+  name         = "${var.name}-ipv4"
+  region       = var.region
+  address_type = "EXTERNAL"
+}
+
 resource "google_compute_instance" "this" {
   name         = var.name
   zone         = var.zone
@@ -34,7 +43,9 @@ resource "google_compute_instance" "this" {
     subnetwork = var.subnetwork
     network_ip = var.private_ip
 
-    access_config {} # public IP: this is the SSH and tunnel entry point
+    access_config {
+      nat_ip = google_compute_address.ipv4.address
+    }
   }
 
   metadata = {

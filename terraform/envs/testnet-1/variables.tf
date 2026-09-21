@@ -109,8 +109,8 @@ variable "explorer_cidrs" {
   default     = []
 
   validation {
-    condition     = !contains(var.explorer_cidrs, "0.0.0.0/0") && !contains(var.explorer_cidrs, "::/0")
-    error_message = "explorer_cidrs must never open the archive node to the internet (ENGINEERING.md §5.2 / §6.5)."
+    condition     = alltrue([for c in var.explorer_cidrs : can(regex("^[0-9.]+/(2[4-9]|3[0-2])$", c))])
+    error_message = "explorer_cidrs entries must be IPv4 prefixes of /24 or narrower — the archive node's debug JSON-RPC is never opened wider than one private subnet (ENGINEERING.md §5.2 / §6.5)."
   }
 }
 
@@ -139,15 +139,31 @@ variable "hetzner_ssh_key_ids" {
 }
 
 variable "hetzner_network_ip_range" {
-  description = "CIDR for Hetzner's private validator/sentry/archive network. Independent of the GCP network below — there is no interconnect between the two clouds in this scaffold; sentries from both peer with each other over the public internet like any other node (see README.md)."
+  description = "CIDR for Hetzner's private validator/sentry/archive network. Disjoint from the GCP network below: the two are joined by the bastions' routed WireGuard tunnel (topology.tf, README.md 'Cross-cloud connectivity'), so both must be routable as distinct prefixes."
   type        = string
   default     = "10.0.1.0/24"
 }
 
+variable "hetzner_network_zone" {
+  description = "Network zone of the private network's subnet. A server can only join the network from a location inside this zone, so hetzner_locations is validated against it (an earlier default listed ash, us-east — the first apply would have failed attaching v3)."
+  type        = string
+  default     = "eu-central"
+
+  validation {
+    condition     = contains(keys(local.hetzner_zone_locations), var.hetzner_network_zone)
+    error_message = "hetzner_network_zone must be one of eu-central, us-east, us-west, ap-southeast."
+  }
+}
+
 variable "hetzner_locations" {
-  description = "Hetzner locations to spread this cloud's share of testnet-1 across. ENGINEERING.md §9.2 provider/ASN diversity is a mainnet requirement (D7); running both Hetzner and GCP for testnet-1 goes further than §9.4 ('5, all in-house') strictly requires, but doesn't violate it — all keys are still team-held."
+  description = "Hetzner locations to spread this cloud's share of the fleet across — all inside hetzner_network_zone (eu-central: fsn1, nbg1, hel1). Provider/ASN diversity across the two clouds is the D7 mainnet property; within Hetzner, three datacentres is what one network zone allows."
   type        = list(string)
-  default     = ["fsn1", "hel1", "ash"]
+  default     = ["fsn1", "hel1", "nbg1"]
+
+  validation {
+    condition     = length(var.hetzner_locations) > 0 && alltrue([for l in var.hetzner_locations : contains(local.hetzner_zone_locations[var.hetzner_network_zone], l)])
+    error_message = "Every hetzner_locations entry must be a location inside hetzner_network_zone (eu-central: fsn1, nbg1, hel1; us-east: ash; us-west: hil; ap-southeast: sin) — hcloud refuses to attach a server to a network from another zone."
+  }
 }
 
 # --- GCP ---

@@ -20,7 +20,7 @@ operator_ssh_cidrs = ["203.0.113.10/32"]
 # ]
 
 hetzner_ssh_key_ids = ["your-hcloud-ssh-key-id"]
-hetzner_locations   = ["fsn1", "hel1", "ash"]
+hetzner_locations   = ["fsn1", "hel1", "nbg1"] # all in the subnet's network zone (eu-central); validated
 
 gcp_project = "your-gcp-project-id"
 gcp_region  = "us-central1"

@@ -6,6 +6,11 @@ variable "zone" {
   type = string
 }
 
+variable "region" {
+  description = "Region of the static external address (the zone's region)."
+  type        = string
+}
+
 variable "machine_type" {
   description = "sshd + one WireGuard tunnel + routing; the smallest shared-core type is enough."
   type        = string

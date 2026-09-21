@@ -47,6 +47,26 @@
     - prometheus
     - alertmanager
 
+- name: Create the tenderduty user with the container's uid
+  ansible.builtin.user:
+    name: tenderduty
+    uid: "{{ tenderduty_uid }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Fail if the mainnet monitoring host has no alert route
+  when: chain_id == 'konstellation-1'
+  ansible.builtin.assert:
+    that:
+      - (alert_pagerduty_routing_key | length > 0) or (alert_slack_webhook_url | length > 0)
+        or (alert_webhook_url | length > 0) or (alert_discord_webhook_url | length > 0)
+        or (alert_telegram_api_key | length > 0)
+    fail_msg: >-
+      chain_id is konstellation-1 but every alert_* route is empty — the
+      placeholder Alertmanager/tenderduty routing would page nobody. Set at
+      least one from the vault (runbooks/on-call.md) before deploying mainnet monitoring.
+
 - name: Create directories
   ansible.builtin.file:
     path: "{{ item.path }}"
@@ -59,8 +79,8 @@
     - { path: "{{ monitoring_data_dir }}/prometheus", owner: prometheus }
     - { path: /etc/alertmanager, owner: alertmanager }
     - { path: "{{ monitoring_data_dir }}/alertmanager", owner: alertmanager }
-    - { path: "{{ tenderduty_dir }}", owner: root }
-    - { path: "{{ monitoring_data_dir }}/tenderduty", owner: root }
+    - { path: "{{ tenderduty_dir }}", owner: tenderduty }
+    - { path: "{{ monitoring_data_dir }}/tenderduty", owner: tenderduty }
 
 # --- prometheus ---
 
@@ -183,6 +203,11 @@
     executable: /bin/bash
     creates: /etc/apt/keyrings/grafana.gpg
 
+- name: Install python3-debian (deb822_repository needs it on the target)
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
 - name: Add grafana apt repository
   ansible.builtin.deb822_repository:
     name: grafana
@@ -247,8 +272,8 @@
   ansible.builtin.template:
     src: tenderduty-config.yml.j2
     dest: "{{ tenderduty_dir }}/config.yml"
-    owner: root
-    group: root
+    owner: tenderduty
+    group: tenderduty
     mode: "0600"  # may carry webhook / API keys
   notify: Restart tenderduty
 

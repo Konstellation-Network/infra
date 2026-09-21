@@ -122,6 +122,14 @@
     port: "26656"
     proto: tcp
 
+- name: Allow CometBFT RPC (26657) from the monitoring host — sentries (tenderduty)
+  when: node_role == 'sentry'
+  community.general.ufw:
+    rule: allow
+    port: "26657"
+    proto: tcp
+    src: "{{ monitoring_host_private_ip }}"
+
 - name: Allow public RPC/REST/JSON-RPC ports — rpc only
   when: node_role == 'rpc'
   community.general.ufw:
@@ -133,6 +141,14 @@
     - "1317"
     - "8545:8546"
 
+- name: Fail if an archive RPC source is wider than a /24
+  when: node_role == 'archive'
+  ansible.builtin.assert:
+    that:
+      - archive_rpc_allowed_cidrs | length > 0
+      - archive_rpc_allowed_cidrs | reject('match', '^[0-9.]+/(2[4-9]|3[0-2])$') | list | length == 0
+    fail_msg: "archive_rpc_allowed_cidrs must be non-empty IPv4 prefixes of /24 or narrower (the archive's debug JSON-RPC is never opened wider)."
+
 - name: Allow internal-only RPC/REST/JSON-RPC ports — archive only
   when: node_role == 'archive'
   community.general.ufw:
@@ -140,7 +156,7 @@
     port: "{{ item.0 }}"
     proto: tcp
     src: "{{ item.1 }}"
-  loop: "{{ ['26657', '1317', '8545:8546'] | product(archive_rpc_allowed_cidrs if archive_rpc_allowed_cidrs | length > 0 else fleet_cidrs) | list }}"
+  loop: "{{ ['26657', '1317', '8545:8546'] | product(archive_rpc_allowed_cidrs) | list }}"
 
 # --- Horcrux, dedicated mode: cosigners dial validators' priv_validator_laddr
 #     and each other's raft/grpc port. Exact cosigner IPs, not CIDRs. ---

@@ -10,14 +10,23 @@
       - cosmovisor_sha256 | length > 0
     fail_msg: "cosmovisor_sha256 must be set — never install cosmovisor unverified."
 
-- name: Download and verify cosmovisor {{ cosmovisor_version }}
+- name: Download and verify the cosmovisor tarball {{ cosmovisor_version }}
   ansible.builtin.get_url:
-    url: "https://github.com/cosmos/cosmos-sdk/releases/download/cosmovisor%2F{{ cosmovisor_version }}/cosmovisor-{{ cosmovisor_version }}-linux-amd64"
-    dest: /usr/local/bin/cosmovisor
+    url: "{{ cosmovisor_release_url }}"
+    dest: /tmp/cosmovisor.tar.gz
     checksum: "sha256:{{ cosmovisor_sha256 }}"
+    mode: "0644"
+
+- name: Extract cosmovisor binary
+  ansible.builtin.unarchive:
+    src: /tmp/cosmovisor.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts: ["cosmovisor"]
     owner: root
     group: root
     mode: "0755"
+  notify: Reload systemd and restart cosmovisor
 
 - name: Install cosmovisor systemd unit
   ansible.builtin.template:

@@ -8,9 +8,10 @@ network_cidr: ""  # per-host, from terraform's inventory output — Hetzner and 
 # because the monitoring host / cosigners may be in the other cloud, reached
 # through the bastions' routed WireGuard tunnel with their real source IP.
 fleet_cidrs: []
-# Archive nodes: who may reach RPC/REST/JSON-RPC. Defaults to fleet_cidrs;
-# group_vars/archive.yml narrows it to the explorer host when one exists.
+# Archive nodes: who may reach RPC/REST/JSON-RPC — group_vars/archive.yml
+# sets it to the monitoring host + explorer; /24 or narrower, asserted.
 archive_rpc_allowed_cidrs: []
+monitoring_host_private_ip: ""
 prometheus_port: 26660
 node_exporter_port: 9100
 ssh_port: 22

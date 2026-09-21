@@ -42,8 +42,16 @@ resource "google_compute_instance" "this" {
   }
 
   scheduling {
-    # Local SSD forces this: instances with Local SSD attached can't live-migrate.
-    on_host_maintenance = "TERMINATE"
+    # Live migration with Local SSD is supported and preserves the disk
+    # (GCP "live migration process" docs, checked 2026-09-21: all series
+    # except H4D and >18 TiB Z3) — so MIGRATE, not TERMINATE, which would
+    # have thrown the data away on every maintenance event. Host *errors*
+    # still restart the VM with empty Local SSDs; roles/cosmovisor's unit
+    # refuses to start unless the data volume is mounted, so that path is a
+    # NodeDown page, not a node signing from height 0 (§2.7). FLAGGED for a
+    # human: confirm MIGRATE against the docs of the day before the first
+    # apply — this was TERMINATE in the original scaffold.
+    on_host_maintenance = "MIGRATE"
     automatic_restart   = true
   }
 

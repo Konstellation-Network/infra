@@ -15,10 +15,15 @@ jsonrpc_enabled: true
 # 2026-09-20). Reachability is then decided by the firewalls:
 # archive_rpc_allowed_cidrs below (ufw) and terraform's explorer_cidrs.
 jsonrpc_bind_address: "{{ ansible_host }}"
-# Who may reach 26657/1317/8545-8546 on the archive nodes. Default: the
-# fleet's private networks (fleet_cidrs). Narrow it to the explorer host's
-# address(es) once that host exists — the explorer runs on the stateless
-# app tier (ENGINEERING.md §9.1), outside this fleet, so it reaches the
-# archive over whatever route lands it in a private network (a WireGuard
-# peer on a bastion, or a host inside one of the clouds).
-archive_rpc_allowed_cidrs: "{{ fleet_cidrs }}"
+rpc_bind_address: "0.0.0.0"  # 26657 for Blockscout's indexer; firewalled like the rest
+api_enabled: true            # 1317 likewise
+# Who may reach 26657/1317/8545-8546 on the archive nodes: the monitoring
+# host, plus the explorer host's address(es) once it exists — the explorer
+# runs on the stateless app tier (ENGINEERING.md §9.1), outside this fleet,
+# so it reaches the archive over whatever route lands it in a private
+# network (a WireGuard peer on a bastion, or a host inside one cloud).
+# Never the whole fleet (it includes hosts with public interfaces) and
+# never wider than a /24 (asserted in roles/firewall). Mirror terraform's
+# explorer_cidrs here.
+archive_rpc_allowed_cidrs:
+  - "{{ monitoring_host_private_ip }}/32"

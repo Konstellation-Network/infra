@@ -32,7 +32,8 @@ scrape_configs:
     static_configs:
 {% for host in groups['all'] %}
 {% if host != inventory_hostname %}
-      - targets: ["{{ hostvars[host]['ansible_host'] }}:{{ hostvars[host]['node_exporter_port'] | default(9100) }}"]
+{# an entry bastion's ansible_host is its public IP; scrape its private one #}
+      - targets: ["{{ hostvars[host]['private_ip'] | default(hostvars[host]['ansible_host']) }}:{{ hostvars[host]['node_exporter_port'] | default(9100) }}"]
         labels:
           instance: {{ host }}
           role: {{ hostvars[host]['node_role'] | default('') }}

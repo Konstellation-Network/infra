@@ -16,6 +16,7 @@
       - wireguard_peer | length > 0
       - wireguard_endpoint | length > 0
       - network_cidr | length > 0
+      - private_ip | length > 0
       - remote_cidrs | length > 0
     fail_msg: "WireGuard tunnel vars must come from terraform's inventory output — refusing to guess."
 
