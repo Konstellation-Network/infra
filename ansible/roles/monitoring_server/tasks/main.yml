@@ -117,34 +117,6 @@
     validate: "/usr/local/bin/promtool check rules %s"
   notify: Reload prometheus
 
-- name: Template prometheus.yml (scrape targets from the inventory)
-  ansible.builtin.template:
-    src: prometheus.yml.j2
-    dest: /etc/prometheus/prometheus.yml
-    owner: prometheus
-    group: prometheus
-    mode: "0640"
-    validate: "/usr/local/bin/promtool check config %s"
-  notify: Reload prometheus
-
-- name: Install prometheus systemd unit
-  ansible.builtin.template:
-    src: prometheus.service.j2
-    dest: /etc/systemd/system/prometheus.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Restart prometheus
-
-- name: Enable and start prometheus
-  ansible.builtin.systemd:
-    name: prometheus
-    enabled: true
-    state: started
-    daemon_reload: true
-
-# --- alertmanager ---
-
 - name: Download alertmanager, verify sha256
   ansible.builtin.get_url:
     url: "{{ alertmanager_release_url }}"
@@ -166,15 +138,26 @@
     mode: "0755"
   notify: Restart alertmanager
 
-- name: Template alertmanager.yml (placeholder on-call route)
+- name: Render prometheus.yml, alertmanager.yml, tenderduty config + unit (tasks/configs.yml)
+  ansible.builtin.import_tasks: configs.yml
+
+- name: Install prometheus systemd unit
   ansible.builtin.template:
-    src: alertmanager.yml.j2
-    dest: /etc/alertmanager/alertmanager.yml
-    owner: alertmanager
-    group: alertmanager
-    mode: "0600"  # may carry a routing key
-    validate: "/usr/local/bin/amtool check-config %s"
-  notify: Restart alertmanager
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Enable and start prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# --- alertmanager ---
 
 - name: Install alertmanager systemd unit
   ansible.builtin.template:
@@ -267,24 +250,6 @@
   ansible.builtin.apt:
     name: docker.io
     state: present
-
-- name: Template tenderduty config
-  ansible.builtin.template:
-    src: tenderduty-config.yml.j2
-    dest: "{{ tenderduty_dir }}/config.yml"
-    owner: tenderduty
-    group: tenderduty
-    mode: "0600"  # may carry webhook / API keys
-  notify: Restart tenderduty
-
-- name: Install tenderduty systemd unit (docker run, host network on the private address only)
-  ansible.builtin.template:
-    src: tenderduty.service.j2
-    dest: /etc/systemd/system/tenderduty.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Restart tenderduty
 
 - name: Enable and start tenderduty
   ansible.builtin.systemd:

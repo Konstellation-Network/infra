@@ -54,6 +54,10 @@ jsonrpc_port: 8545
 jsonrpc_ws_port: 8546
 
 local_ssd_count: 0
+# Set -e allow_data_rebuild=true ONLY after runbooks/validator-key-rotation.md
+# §B: lets tasks/data_guard.yml (re)build a data volume under an existing
+# validator key.
+allow_data_rebuild: false
 
 # Horcrux remote signing (validators only; ansible/roles/horcrux). false =
 # the node signs with its own priv_validator_key.json. true = config.toml

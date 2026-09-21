@@ -5,6 +5,12 @@
 # through the bastion (runbooks/on-call.md).
 
 monitoring_data_dir: /var/lib/monitoring   # data_volume_device mounted here
+prometheus_config_dir: /etc/prometheus
+alertmanager_config_dir: /etc/alertmanager
+tenderduty_unit_path: /etc/systemd/system/tenderduty.service
+# ansible/tests/render_test.yml only: render into a scratch dir, skip
+# ownership/validation, silence handlers. Never set on a real host.
+monitoring_render_only: false
 data_volume_device: ""                     # from terraform's inventory output
 
 # Same pattern as every other download in this repo: pinned version, sha256
@@ -13,7 +19,10 @@ data_volume_device: ""                     # from terraform's inventory output
 prometheus_version: "2.55.1"
 prometheus_sha256: ""
 prometheus_release_url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
-prometheus_port: 9090
+# Prometheus's own web port. NOT `prometheus_port` — that name is CometBFT's
+# metrics port (26660) in group_vars/all.yml and would have won over a role
+# default here (caught by tests/render_test.yml, 2026-09-21).
+prometheus_web_port: 9090
 prometheus_retention: "90d"
 prometheus_scrape_interval: 15s
 

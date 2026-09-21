@@ -28,3 +28,5 @@ horcrux_privval_port: 1234
 horcrux_p2p_base_port: 2222
 horcrux_grpc_timeout: 1000ms
 horcrux_raft_timeout: 1000ms
+horcrux_unit_path: /etc/systemd/system/horcrux@.service
+horcrux_render_only: false

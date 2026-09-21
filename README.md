@@ -58,10 +58,15 @@ optional operator-SSH firewall rule and the monitoring host's cloud), the
 inventory/ssh_config templates rendered via `tofu console`, and
 **`ansible/tests/render_test.yml`** — rendered-template regressions
 (`ansible-playbook -i tests/inventory/hosts.yml tests/render_test.yml`,
-controller-only, touches no host) for the findings an independent review
-reproduced by rendering: the cosmovisor `current` symlink guard, the mount
-guard on the node unit, WireGuard source routes, bastion scrape targets,
-tenderduty's uid and targets, horcrux's per-validator instances. Not
+controller-only, touches no host). It imports the roles' own task files
+(`import_role … tasks_from`) so the shipped tasks run with real variable
+precedence, and it is kept honest by the mutation set in its header — five
+deliberate breakages that each must fail it (verified 2026-09-21). Covers:
+the cosmovisor `current` symlink guard, the data-rebuild guard
+(`roles/node/tasks/data_guard.yml`, §2.7), the mount guard on the node
+unit, WireGuard source routes, bastion scrape targets, Prometheus's own
+port not colliding with CometBFT's `prometheus_port` (a real bug the test
+found), tenderduty's uid and targets, horcrux's per-validator instances. Not
 verified: an actual `apply` (needs a real Hetzner token and GCP project) or
 anything ansible actually touching a live host — including the WireGuard
 tunnel, the Hetzner NAT path and the per-validator horcrux instances, all

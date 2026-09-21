@@ -1,14 +1,28 @@
 ---
 # Rendered-template tests. No hosts are touched: every play runs on the
-# controller (connection: local, no become) against tests/inventory, renders
-# the roles' templates into a temp dir and asserts on the output. Each test
-# is a regression for a finding an independent review reproduced by
-# rendering (2026-09-21). Run:
+# controller (connection: local, no become) against tests/inventory, imports
+# the ROLES' OWN task files (import_role … tasks_from) so the shipped tasks
+# execute with role defaults at default precedence and inventory host vars
+# winning, renders into a temp dir and asserts on the output. Each test is a
+# regression for a finding an independent review reproduced by rendering
+# (2026-09-21). Run:
 #
 #   ansible-playbook -i tests/inventory/hosts.yml tests/render_test.yml
 #
-# Requires community.general (requirements.yml). Adds no new roles: the
-# horcrux instance-list tasks are included from the role itself.
+# Requires community.general (requirements.yml).
+#
+# MUTATION SET — each of these edits must make this suite FAIL (verified
+# 2026-09-21; re-run after touching any of the files):
+#   1. roles/cosmovisor/templates/cosmovisor.service.j2: delete the
+#      `RequiresMountsFor=` line                         -> "Cosmovisor unit — mount guard" fails
+#   2. roles/node/tasks/link.yml: delete
+#      `when: not cosmovisor_current_link.stat.exists`   -> "Node role — cosmovisor current symlink guard" fails
+#   3. roles/horcrux/templates/horcrux@.service.j2: change ExecStart to
+#      `horcrux cosigner start --home …`                  -> "Horcrux — dedicated instances" fails
+#   4. roles/monitoring_server/templates/prometheus.yml.j2: scrape
+#      `hostvars[host]['ansible_host']` for every host    -> "Monitoring server — rendered configs" fails
+#   5. roles/node/tasks/data_guard.yml: delete the `when:` block on the
+#      refusal (or the key stat)                          -> "Node role — data rebuild guard" fails
 
 - name: Set up the scratch directory
   hosts: localhost
@@ -26,8 +40,7 @@
       ansible.builtin.set_fact:
         render_dir: "{{ scratch.path }}"
 
-# --- roles/node: cosmovisor `current` symlink must never be re-pointed ---
-# (H2: file state=link force=false re-pointed an existing symlink every run)
+# --- roles/node tasks/link.yml: cosmovisor `current` must never be re-pointed (H2) ---
 - name: Node role — cosmovisor current symlink guard
   hosts: localhost
   connection: local
@@ -53,21 +66,10 @@
         dest: "{{ daemon_home }}/cosmovisor/current"
         state: link
 
-    # The exact two tasks from roles/node/tasks/main.yml.
-    - name: Check whether cosmovisor current already points somewhere
-      ansible.builtin.stat:
-        path: "{{ daemon_home }}/cosmovisor/current"
-      register: cosmovisor_current_link
-
-    - name: Symlink cosmovisor current -> genesis on first install only
-      when: not cosmovisor_current_link.stat.exists
-      ansible.builtin.file:
-        src: "{{ daemon_home }}/cosmovisor/genesis"
-        dest: "{{ daemon_home }}/cosmovisor/current"
-        state: link
-        owner: "{{ konstellation_user }}"
-        group: "{{ konstellation_group }}"
-      register: relink
+    - name: Run the role's link tasks
+      ansible.builtin.import_role:
+        name: node
+        tasks_from: link.yml
 
     - name: Read where current points now
       ansible.builtin.stat:
@@ -77,11 +79,66 @@
     - name: Assert the upgraded link was left alone
       ansible.builtin.assert:
         that:
-          - relink is skipped
           - after.stat.lnk_target is search('upgrades/v2$')
         fail_msg: "site.yml would have rolled cosmovisor/current back to genesis: {{ after.stat.lnk_target }}"
 
-# --- roles/cosmovisor: mount guard only where data lives on a volume (H6) ---
+# --- roles/node tasks/data_guard.yml: never rebuild a data volume under a validator key (§2.7) ---
+- name: Node role — data rebuild guard
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    daemon_home: "{{ render_dir }}/guard_home"
+  tasks:
+    - name: Simulate a validator whose data volume is gone (key on the boot disk, no /dev/md0)
+      ansible.builtin.file:
+        path: "{{ daemon_home }}/config"
+        state: directory
+        mode: "0700"
+
+    - name: Place a (fake) consensus key
+      ansible.builtin.copy:
+        dest: "{{ daemon_home }}/config/priv_validator_key.json"
+        content: '{"fake": "render-test only"}'
+        mode: "0600"
+
+    - name: The guard must refuse
+      block:
+        - name: Run the role's data guard as the RAID block would
+          ansible.builtin.import_role:
+            name: node
+            tasks_from: data_guard.yml
+          vars:
+            data_guard_device: /dev/md0
+            data_guard_intact: false
+
+        - name: Reached only if the guard did not fire
+          ansible.builtin.set_fact:
+            guard_fired: false
+      rescue:
+        - name: Record the refusal
+          ansible.builtin.set_fact:
+            guard_fired: true
+            guard_msg: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: Assert it refused, with the runbook pointer
+      ansible.builtin.assert:
+        that:
+          - guard_fired | bool
+          - guard_msg is search('validator-key-rotation.md')
+          - guard_msg is search('emergency-halt.md')
+        fail_msg: "data_guard.yml let a validator's data volume be rebuilt under its key"
+
+    - name: With the override and an intact device it must pass
+      ansible.builtin.import_role:
+        name: node
+        tasks_from: data_guard.yml
+      vars:
+        data_guard_device: /dev/md0
+        data_guard_intact: true
+
+# --- roles/cosmovisor tasks/unit.yml: mount guard exactly where data is on a volume (H6) ---
 - name: Cosmovisor unit — mount guard
   hosts: testnet-1-gcp-validator-v6:testnet-1-hetzner-validator-v1:testnet-1-hetzner-archive-1
   connection: local
@@ -89,19 +146,17 @@
   become: false
   vars:
     render_dir: "{{ hostvars['localhost']['render_dir'] }}"
+    cosmovisor_render_only: true
+    cosmovisor_unit_path: "{{ render_dir }}/cosmovisor-{{ inventory_hostname }}.service"
   tasks:
-    - name: Load role defaults
-      ansible.builtin.include_vars: "{{ playbook_dir }}/../roles/cosmovisor/defaults/main.yml"
-
-    - name: Render cosmovisor.service
-      ansible.builtin.template:
-        src: "{{ playbook_dir }}/../roles/cosmovisor/templates/cosmovisor.service.j2"
-        dest: "{{ render_dir }}/cosmovisor-{{ inventory_hostname }}.service"
-        mode: "0644"
+    - name: Render the unit through the role's task
+      ansible.builtin.import_role:
+        name: cosmovisor
+        tasks_from: unit.yml
 
     - name: Read it back
       ansible.builtin.slurp:
-        src: "{{ render_dir }}/cosmovisor-{{ inventory_hostname }}.service"
+        src: "{{ cosmovisor_unit_path }}"
       register: unit
 
     - name: Assert the guard is present exactly on hosts with a data volume
@@ -113,6 +168,13 @@
         fail_msg: "{{ inventory_hostname }}: mount guard expected={{ expects_guard }}"
       vars:
         expects_guard: "{{ (data_volume_device | default('') | length > 0) or (local_ssd_count | default(0) | int > 0) }}"
+
+    - name: Assert the fixture really exercises both branches (one host with, one without)
+      ansible.builtin.assert:
+        that:
+          - hostvars['testnet-1-gcp-validator-v6']['local_ssd_count'] | int > 0
+          - hostvars['testnet-1-hetzner-validator-v1']['local_ssd_count'] is not defined
+          - hostvars['testnet-1-hetzner-archive-1']['data_volume_device'] | length > 0
 
 # --- roles/wireguard: bastion-originated traffic must carry the private IP (M7/L18) ---
 - name: WireGuard config — Table=off and src routes
@@ -139,15 +201,17 @@
         src: "{{ render_dir }}/wg0-{{ inventory_hostname }}.conf"
       register: wg
 
-    - name: Assert routes are explicit, idempotent, and sourced from the private IP
+    - name: Assert routes are explicit, idempotent, symmetric, and sourced from the private IP
       ansible.builtin.assert:
         that:
           - wg.content | b64decode is search('Table = off')
           - wg.content | b64decode is search('ip route replace ' ~ remote_cidrs[0] ~ ' dev %i src ' ~ private_ip)
+          - wg.content | b64decode is search('PostDown = ip route del ' ~ remote_cidrs[0] ~ ' dev %i')
+          - wg.content | b64decode is search('PostDown = ip route del ' ~ hostvars[wireguard_peer]['wireguard_address'] ~ '/32 dev %i')
           - wg.content | b64decode is search('PublicKey = PUBKEY-' ~ wireguard_peer)
           - wg.content | b64decode is not search('PrivateKey')
 
-# --- roles/monitoring_server: scrape targets, tenderduty, alert routes (M10, M9, L21) ---
+# --- roles/monitoring_server tasks/configs.yml: scrape targets, tenderduty, alert routes (M10, M9, L21) ---
 - name: Monitoring server — rendered configs
   hosts: monitoring
   connection: local
@@ -155,26 +219,21 @@
   become: false
   vars:
     render_dir: "{{ hostvars['localhost']['render_dir'] }}"
+    monitoring_render_only: true
+    prometheus_config_dir: "{{ render_dir }}"
+    alertmanager_config_dir: "{{ render_dir }}"
+    tenderduty_dir: "{{ render_dir }}"
+    tenderduty_unit_path: "{{ render_dir }}/tenderduty.service"
   tasks:
-    - name: Load role defaults
-      ansible.builtin.include_vars: "{{ playbook_dir }}/../roles/{{ item }}/defaults/main.yml"
-      loop: [monitoring_server, monitoring]
-
-    - name: Render prometheus.yml and tenderduty config
-      ansible.builtin.template:
-        src: "{{ playbook_dir }}/../roles/monitoring_server/templates/{{ item.src }}"
-        dest: "{{ render_dir }}/{{ item.dest }}"
-        mode: "0644"
-      loop:
-        - { src: prometheus.yml.j2, dest: prometheus.yml }
-        - { src: tenderduty-config.yml.j2, dest: tenderduty.yml }
-        - { src: alertmanager.yml.j2, dest: alertmanager.yml }
-        - { src: tenderduty.service.j2, dest: tenderduty.service }
+    - name: Render through the role's tasks
+      ansible.builtin.import_role:
+        name: monitoring_server
+        tasks_from: configs.yml
 
     - name: Read them back
       ansible.builtin.slurp:
         src: "{{ render_dir }}/{{ item }}"
-      loop: [prometheus.yml, tenderduty.yml, tenderduty.service]
+      loop: [prometheus.yml, config.yml, tenderduty.service, alertmanager.yml]
       register: rendered
 
     - name: Assert bastions are scraped on their private address, never the public one
@@ -185,84 +244,67 @@
         fail_msg: "{{ item }} would be NodeDown forever: scraped on its public IP"
       loop: "{{ groups['bastions'] }}"
 
-    - name: Assert every validator and every host is a target
+    - name: Assert every chain node and every host is a target, and Prometheus itself is on its own port
       ansible.builtin.assert:
         that:
           - rendered.results[0].content | b64decode | regex_findall(':26660"') | length == (groups['chain_nodes'] | length)
           - rendered.results[0].content | b64decode | regex_findall(':9100"') | length == (groups['all'] | length)
+          # prometheus_port is CometBFT's 26660 in group_vars/all.yml; the
+          # server's own web port must not collide with it (found by this test).
+          - "rendered.results[0].content | b64decode is search('127.0.0.1:' ~ prometheus_web_port ~ '\"')"
+          - "prometheus_web_port | int != prometheus_port | int"
 
-    - name: Assert tenderduty targets the sentries/rpc on 26657 and runs as its own uid
+    - name: Assert tenderduty runs as its own uid, targets the sentries/rpc on 26657, and the placeholder routes are off
       ansible.builtin.assert:
         that:
           - rendered.results[2].content | b64decode is search('--user ' ~ tenderduty_uid ~ ':' ~ tenderduty_uid)
           - tenderduty_rpc_nodes | length == (groups['sentries'] | length) + (groups['rpc'] | length)
           - tenderduty_rpc_nodes[0] is match('^http://10\\.0\\.[12]\\.[0-9]+:26657$')
+          - tenderduty_validators | length == (groups['validators'] | length)
+          - "rendered.results[3].content | b64decode is search('receiver: on-call')"
+          - rendered.results[3].content | b64decode is not search('pagerduty_configs')
 
-# --- roles/horcrux: one instance per validator on every cosigner (dedicated) ---
-- name: Horcrux — dedicated instance list
+# --- roles/horcrux tasks/instances.yml + config.yml: one instance per validator on every cosigner ---
+- name: Horcrux — dedicated instances
   hosts: cosigners
   connection: local
   gather_facts: false
   become: false
   vars:
     render_dir: "{{ hostvars['localhost']['render_dir'] }}"
+    horcrux_render_only: true
+    horcrux_home: "{{ render_dir }}/horcrux-{{ inventory_hostname }}"
+    horcrux_unit_path: "{{ render_dir }}/horcrux@-{{ inventory_hostname }}.service"
   tasks:
-    - name: Load role defaults
-      ansible.builtin.include_vars: "{{ playbook_dir }}/../roles/horcrux/defaults/main.yml"
+    - name: Build the instance list and render through the role's tasks
+      ansible.builtin.import_role:
+        name: horcrux
+        tasks_from: instances.yml
 
-    - name: Collect the cosigner hosts (dedicated)
-      ansible.builtin.set_fact:
-        horcrux_cosigner_hosts: >-
-          {{ horcrux_cosigner_hosts | default([]) + [{
-               'shard_id': hostvars[item]['shard_id'],
-               'ansible_host': hostvars[item]['ansible_host']
-             }] }}
-      loop: "{{ groups['cosigners'] }}"
+    - name: Render homes, configs and the unit through the role's tasks
+      ansible.builtin.import_role:
+        name: horcrux
+        tasks_from: config.yml
 
-    - name: Build the instance list (dedicated — one per validator)
-      ansible.builtin.set_fact:
-        horcrux_instances: >-
-          {{ horcrux_instances | default([]) + [{
-               'name': item,
-               'privval_addr': 'tcp://' ~ hostvars[item]['ansible_host'] ~ ':' ~ horcrux_privval_port,
-               'p2p_port': horcrux_p2p_base_port + idx,
-               'cosigners': horcrux_cosigner_hosts | map('combine', {'p2p_port': horcrux_p2p_base_port + idx}) | list
-             }] }}
-      loop: "{{ groups['validators'] | sort }}"
-      loop_control:
-        index_var: idx
-
-    - name: Render every instance's config.yaml
-      ansible.builtin.template:
-        src: "{{ playbook_dir }}/../roles/horcrux/templates/config.yaml.j2"
-        dest: "{{ render_dir }}/horcrux-{{ inventory_hostname }}-{{ item.name }}.yaml"
-        mode: "0600"
-      loop: "{{ horcrux_instances }}"
-      loop_control:
-        label: "{{ item.name }}"
-      vars:
-        instance: "{{ item }}"
-        horcrux_mode: dedicated
-
-    - name: Render the unit
-      ansible.builtin.template:
-        src: "{{ playbook_dir }}/../roles/horcrux/templates/horcrux@.service.j2"
-        dest: "{{ render_dir }}/horcrux@-{{ inventory_hostname }}.service"
-        mode: "0644"
-
-    - name: Read the unit back
+    - name: Read the unit and one config back
       ansible.builtin.slurp:
-        src: "{{ render_dir }}/horcrux@-{{ inventory_hostname }}.service"
-      register: hunit
+        src: "{{ item }}"
+      loop:
+        - "{{ horcrux_unit_path }}"
+        - "{{ horcrux_home }}/{{ horcrux_instances[0].name }}/config.yaml"
+      register: hrendered
 
-    - name: Assert one instance per validator, ports in range, v3 start syntax
+    - name: Assert one instance per validator, ports in range, v3 start syntax, cosigner list complete
       ansible.builtin.assert:
         that:
+          - horcrux_mode == 'dedicated'
           - horcrux_instances | length == (groups['validators'] | length)
           - horcrux_instances | map(attribute='p2p_port') | max <= 2299
           - horcrux_instances | map(attribute='cosigners') | map('length') | unique == [groups['cosigners'] | length]
-          - hunit.content | b64decode is search('horcrux --home .*/%i start')
-          - hunit.content | b64decode is not search('ExecStart=.*cosigner start')
+          - hrendered.results[0].content | b64decode is search('ExecStart=/usr/local/bin/horcrux --home .*/%i start')
+          - hrendered.results[0].content | b64decode is not search('ExecStart=.*cosigner start')
+          - "hrendered.results[1].content | b64decode | regex_findall('shardID:') | length == (groups['cosigners'] | length)"
+          - "hrendered.results[1].content | b64decode is search('privValAddr: tcp://10.0.[12].[0-9]+:1234')"
 
 - name: Report
   hosts: localhost

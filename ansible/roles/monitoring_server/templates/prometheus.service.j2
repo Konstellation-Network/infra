@@ -11,7 +11,7 @@ ExecStart=/usr/local/bin/prometheus \
   --config.file=/etc/prometheus/prometheus.yml \
   --storage.tsdb.path={{ monitoring_data_dir }}/prometheus \
   --storage.tsdb.retention.time={{ prometheus_retention }} \
-  --web.listen-address=127.0.0.1:{{ prometheus_port }} \
+  --web.listen-address=127.0.0.1:{{ prometheus_web_port }} \
   --web.enable-lifecycle
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure

@@ -10,3 +10,7 @@ cosmovisor_sha256: ""
 cosmovisor_release_url: "https://github.com/cosmos/cosmos-sdk/releases/download/cosmovisor%2F{{ cosmovisor_version }}/cosmovisor-{{ cosmovisor_version }}-linux-amd64.tar.gz"
 data_volume_device: ""
 local_ssd_count: 0
+cosmovisor_unit_path: /etc/systemd/system/cosmovisor.service
+# ansible/tests/render_test.yml only: render the unit somewhere else and do
+# not touch systemd. Never set on a real host.
+cosmovisor_render_only: false

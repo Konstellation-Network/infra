@@ -1,0 +1,13 @@
+---
+# The systemd unit, split out so ansible/tests/render_test.yml can import
+# exactly this task (cosmovisor_render_only redirects the destination and
+# silences the handler; nothing else changes).
+
+- name: Install cosmovisor systemd unit
+  ansible.builtin.template:
+    src: cosmovisor.service.j2
+    dest: "{{ cosmovisor_unit_path }}"
+    owner: "{{ omit if cosmovisor_render_only else 'root' }}"
+    group: "{{ omit if cosmovisor_render_only else 'root' }}"
+    mode: "0644"
+  notify: Reload systemd and restart cosmovisor

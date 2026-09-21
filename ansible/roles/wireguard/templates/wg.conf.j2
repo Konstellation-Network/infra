@@ -19,6 +19,7 @@ PostUp = ip route replace {{ hostvars[wireguard_peer]['wireguard_address'] }}/32
 {% for cidr in remote_cidrs %}
 PostDown = ip route del {{ cidr }} dev %i || true
 {% endfor %}
+PostDown = ip route del {{ hostvars[wireguard_peer]['wireguard_address'] }}/32 dev %i || true
 
 [Peer]
 # {{ wireguard_peer }}

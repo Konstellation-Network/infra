@@ -1,0 +1,41 @@
+---
+# Refuse to (re)build a validator's data volume underneath an existing
+# consensus key (§2.7 residual found in review, 2026-09-21).
+#
+# The scenario: a GCP host error returns the VM with empty Local SSDs. The
+# cosmovisor unit's mount guard keeps the node down (a NodeDown page) — but
+# a plain re-run of site.yml would then `mdadm --create`, format, mount an
+# empty array, and the node would start with the boot-disk
+# priv_validator_key.json and a fresh priv_validator_state.json at height
+# 0: the double-sign path. The same holds for a single data volume that has
+# lost its filesystem. So: if this host holds a validator key and its data
+# device is not intact, stop, unless the operator explicitly says the data
+# may be rebuilt — after bumping the signing state per
+# runbooks/validator-key-rotation.md §B.
+#
+# Inputs (set by the caller):
+#   data_guard_device  - the device that would be created/formatted
+#   data_guard_intact  - bool: the device/array already exists with its
+#                        filesystem (true = nothing would be rebuilt)
+# Override: -e allow_data_rebuild=true
+
+- name: Check whether this host holds a validator consensus key
+  ansible.builtin.stat:
+    path: "{{ daemon_home }}/config/priv_validator_key.json"
+  register: node_validator_key
+
+- name: Refuse to rebuild the data device under an existing validator key — {{ data_guard_device }}
+  when:
+    - node_validator_key.stat.exists
+    - not (data_guard_intact | bool)
+    - not (allow_data_rebuild | default(false) | bool)
+  ansible.builtin.fail:
+    msg: >-
+      {{ inventory_hostname }} holds {{ daemon_home }}/config/priv_validator_key.json
+      but its data device {{ data_guard_device }} is missing or has no filesystem —
+      the data volume was lost (GCP host error, disk swap). Rebuilding it now would
+      start the node with the same key and priv_validator_state.json at height 0,
+      i.e. double-sign (ENGINEERING.md §2.7). Follow runbooks/validator-key-rotation.md
+      §B (prove the old signer is dead, set priv_validator_state.json above the
+      last height the chain saw this key sign) and runbooks/emergency-halt.md if the
+      chain is affected, then re-run with -e allow_data_rebuild=true.

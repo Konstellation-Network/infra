@@ -6,11 +6,13 @@
     daemon_reload: true
 
 - name: Reload prometheus
+  when: not (monitoring_render_only | default(false) | bool)
   ansible.builtin.systemd:
     name: prometheus
     state: reloaded
 
 - name: Restart alertmanager
+  when: not (monitoring_render_only | default(false) | bool)
   ansible.builtin.systemd:
     name: alertmanager
     state: restarted
@@ -22,6 +24,7 @@
     state: restarted
 
 - name: Restart tenderduty
+  when: not (monitoring_render_only | default(false) | bool)
   ansible.builtin.systemd:
     name: tenderduty
     state: restarted
