@@ -45,6 +45,23 @@ scrape_configs:
           instance: {{ inventory_hostname }}
           role: monitoring
 
+{% if groups['cosigners'] | default([]) | length > 0 %}
+  # horcrux cosigners (dedicated mode): one instance per validator per host,
+  # debugAddr ports base+i (roles/horcrux). A cosigner that stops answering
+  # here is a shard out of the 2-of-3 cluster.
+  - job_name: horcrux
+    static_configs:
+{% for host in groups['cosigners'] %}
+{% for v in groups['validators'] | sort %}
+      - targets: ["{{ hostvars[host]['ansible_host'] }}:{{ (hostvars[host]['horcrux_debug_base_port'] | default(8453)) + loop.index0 }}"]
+        labels:
+          instance: {{ host }}
+          validator: {{ v }}
+          cloud: {{ hostvars[host]['cloud'] | default('') }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+
   # tenderduty's own metrics: missed blocks per validator as the pager sees
   # them, and `up` on this job is "the pager is alive".
   - job_name: tenderduty

@@ -113,10 +113,18 @@ Times are targets from `ENGINEERING.md §4.2`.
    ```
    Mainnet: operators confirm in the channel with their height.
 8. **Swap and restart** — for an emergency patch without a governance
-   `MsgSoftwareUpgrade`, cosmovisor does not swap for you: put the new
-   binary in `cosmovisor/genesis/bin/` (or point `current` at an
-   `upgrades/<name>` directory), clear `halt-height`, restart. Watch for
-   `⅔+` voting power to come back before expecting blocks.
+   `MsgSoftwareUpgrade`, cosmovisor does not swap for you. Stage the new
+   binary as `cosmovisor/upgrades/<name>/bin/konstellationd` with
+   `ansible/upgrade.yml` (checksum-verified) and repoint `current` at that
+   directory; **never overwrite `cosmovisor/genesis/bin/`** — `roles/node`
+   re-downloads the pinned `konstellationd_version`/`_sha256` into it on the
+   next `site.yml`, which would silently revert the patch on the next
+   restart (review, 2026-09-21). In the **same step**, bump
+   `konstellationd_version` and `konstellationd_sha256` in
+   `ansible/inventories/<net>/group_vars/all.yml` (and `RELEASES.md`) to
+   the patched release, so the fleet's declared state is the patched one.
+   Then clear `halt-height`, restart. Watch for `⅔+` voting power to come
+   back before expecting blocks.
 9. **Verify:** height advancing on every node, `app_hash` identical across
    validators at H+1 (`curl localhost:26657/block?height=<H+1> | jq
    .result.block.header.app_hash`), the exploit path closed (re-run whatever
@@ -150,16 +158,16 @@ Times are targets from `ENGINEERING.md §4.2`.
    address (`konstellationd tx compliance emergency-freeze <addr>... --from
    <authority>` — effective immediately for one timelock period, and it also
    clears any EIP-7702 delegation on the address).
-6. **Reconcile heights** (only after an unplanned stop, tool 3). Every
-   validator must restart from the *same* last committed height. Anyone
-   ahead must `konstellationd rollback` to the common height **once** —
-   a rollback discards the last committed block's state, and doing it on a
-   node that then signs at that height with its old
-   `priv_validator_state.json` is safe *only* because the state file still
-   records the higher height (it will refuse to sign lower). **Never edit or
-   delete `priv_validator_state.json`** to make a restart go through — that
-   is the double-sign path (`§2.7`), and with horcrux the equivalent file is
-   in each cosigner's home.
+6. **Do not "reconcile heights"** after an unplanned stop. Validators
+   stopped at different heights are *normal*: a node behind simply catches
+   up from its peers on restart, and a node ahead already holds a
+   committed block the others will fetch. `konstellationd rollback` is for
+   a block that was committed and must be undone (a bad upgrade handler,
+   `coordinated-upgrade.md` §7), not for a stop — an unnecessary rollback
+   is a way to make a node sign at a height it already signed. **Never edit
+   or delete `priv_validator_state.json`** to make a restart go through —
+   that is the double-sign path (`§2.7`), and with horcrux the equivalent
+   is each cosigner's `state/` directory.
 7. **Restart in an order that cannot double-sign:** sentries first, then
    validators one at a time, watching each one's `journalctl` for
    "signed" lines before the next. Height should advance once ⅔+ is back.
@@ -175,4 +183,6 @@ Times are targets from `ENGINEERING.md §4.2`.
 - [ ] Exercise both the breaker and `halt-height`, and at least once the unplanned stop + `rollback` path.
 - [ ] The §15 chaos test is a separate drill: kill 40 % of validators mid-block — 4 of the 10 (two per cloud, so neither cloud loses all its sentries) — and confirm the chain **halts** (60 % of voting power is below the ⅔ needed), then that restarting the four resumes without a double-sign. The halt is the expected result; the restart is what is being rehearsed.
 - [ ] Verify `app_hash` agreement across validators after restart.
+- [ ] Confirm the patched version survives a `site.yml` run after the drill (`konstellationd_version`/`_sha256` bumped, `cosmovisor/genesis/bin` untouched).
+- [ ] Rehearse `coordinated-upgrade.md` §7's failed-handler rollback (`--unsafe-skip-upgrades`) once, on testnet, before it is ever needed.
 - [ ] Write up: what took longest, what this file got wrong, and fix it in the same PR.

@@ -214,6 +214,17 @@ resource "local_file" "ssh_config" {
   })
 }
 
+# M4 (review, 2026-09-21): say it in the plan when a single provider holds
+# two shards. Not an error — there is no third provider to place it on yet
+# (STATUS §5a P16/P21).
+output "cosigner_placement_warning" {
+  value = (
+    var.horcrux_mode == "dedicated" && (length(local.hetzner_cosigners) >= 2 || length(local.gcp_cosigners) >= 2)
+    ? "WARNING: ${length(local.hetzner_cosigners)} shards on Hetzner, ${length(local.gcp_cosigners)} on GCP — one provider account holds a signing threshold (P21). Acceptable for testnet-1 only."
+    : "ok"
+  )
+}
+
 output "validator_private_ips" {
   value = { for k, v in local.inventory_validators : k => v.private_ip }
 }

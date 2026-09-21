@@ -19,3 +19,6 @@ thresholdMode:
   raftTimeout: {{ horcrux_raft_timeout }}
 chainNodes:
   - privValAddr: {{ instance.privval_addr }}
+# Prometheus metrics for this instance (roles/monitoring_server scrapes it;
+# roles/firewall admits the monitoring host only).
+debugAddr: {{ '127.0.0.1' if horcrux_mode == 'colocated' else ansible_host }}:{{ instance.debug_port }}

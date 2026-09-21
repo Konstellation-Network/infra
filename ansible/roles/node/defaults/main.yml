@@ -18,9 +18,15 @@ genesis_url: ""
 genesis_sha256: ""
 
 pex: true
+# Manual overrides only; tasks/peers.yml computes both from the inventory
+# when these are empty.
 persistent_peers: ""
 private_peer_ids: ""
 seeds: ""
+node_role: rpc
+cloud: ""
+# tests only: skip the show-node-id command
+node_render_only: false
 
 pruning: default
 pruning_keep_recent: "0"
@@ -31,7 +37,6 @@ prometheus_port: 26660
 
 mempool_type: app
 public_ip: true
-node_role: rpc
 
 jsonrpc_enabled: false
 evm_tracer_enabled: false

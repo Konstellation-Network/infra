@@ -4,6 +4,9 @@
 # or GOOGLE_APPLICATION_CREDENTIALS pointing at a service account key file.
 
 ssh_public_key = "ssh-ed25519 AAAA... deploy@bootstrap"
+# A DIFFERENT key for the Horcrux cosigner hosts (dedicated mode only; validated
+# to differ from ssh_public_key). Who holds it is STATUS §5a P21.
+# cosigner_ssh_public_key = "ssh-ed25519 AAAA... cosigner-admin@hsm"
 
 # Operator workstations / VPN egress allowed to SSH to the bastion(s). One /32
 # per person. Never 0.0.0.0/0 (validated).

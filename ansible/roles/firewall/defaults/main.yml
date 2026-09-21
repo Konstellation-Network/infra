@@ -11,7 +11,11 @@ fleet_cidrs: []
 # Archive nodes: who may reach RPC/REST/JSON-RPC — group_vars/archive.yml
 # sets it to the monitoring host + explorer; /24 or narrower, asserted.
 archive_rpc_allowed_cidrs: []
+# Explorer backend only: REST + the debug JSON-RPC. Empty until it exists.
+archive_explorer_cidrs: []
 monitoring_host_private_ip: ""
+horcrux_debug_base_port: 8453
+cloud: ""
 prometheus_port: 26660
 node_exporter_port: 9100
 ssh_port: 22

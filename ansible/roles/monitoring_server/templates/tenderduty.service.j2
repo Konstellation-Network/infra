@@ -9,16 +9,19 @@ Type=simple
 Restart=always
 RestartSec=5
 ExecStartPre=-/usr/bin/docker rm -f tenderduty
-ExecStartPre=/usr/bin/docker pull {{ tenderduty_image }}{{ '@' + tenderduty_image_digest if tenderduty_image_digest | length > 0 else '' }}
-# Ports bound to loopback only; reach the dashboard through an SSH forward.
-# The container needs to reach the sentries' RPC on private IPs, hence
-# --network host rather than a bridge (+ a route for the far cloud).
+ExecStartPre=/usr/bin/docker pull {{ tenderduty_image }}@{{ tenderduty_image_digest }}
+# Bridge network: the container reaches the sentries' private IPs through
+# the host's routing table (incl. the far cloud via the bastion tunnel).
+# Dashboard and metrics are published on loopback ONLY; reach them with an
+# SSH port-forward through the bastion (runbooks/on-call.md).
 ExecStart=/usr/bin/docker run --rm --name tenderduty \
-  --network host \
   --user {{ tenderduty_uid }}:{{ tenderduty_uid }} \
+  {{ tenderduty_run_opts }} \
+  -p 127.0.0.1:{{ tenderduty_dashboard_port }}:{{ tenderduty_dashboard_port }} \
+  -p 127.0.0.1:{{ tenderduty_prometheus_port }}:{{ tenderduty_prometheus_port }} \
   -v {{ tenderduty_dir }}:/var/lib/tenderduty:ro \
   -v {{ monitoring_data_dir }}/tenderduty:/state \
-  {{ tenderduty_image }}{{ '@' + tenderduty_image_digest if tenderduty_image_digest | length > 0 else '' }} \
+  {{ tenderduty_image }}@{{ tenderduty_image_digest }} \
   -f /var/lib/tenderduty/config.yml -state /state/.tenderduty-state.json
 ExecStop=/usr/bin/docker stop tenderduty
 

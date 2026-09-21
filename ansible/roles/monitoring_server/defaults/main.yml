@@ -37,6 +37,9 @@ alertmanager_port: 9093
 grafana_version: "11.2.0"
 grafana_port: 3000
 grafana_apt_key_url: "https://apt.grafana.com/gpg.key"
+# Fingerprint of the key above, recorded from Grafana's documentation (out
+# of band from the download) — fail closed while empty, like every other pin.
+grafana_apt_key_fingerprint: ""
 grafana_apt_uri: "https://apt.grafana.com"
 
 # --- tenderduty (ENGINEERING.md §9.2, §17: the validator pager) ---
@@ -47,9 +50,18 @@ grafana_apt_uri: "https://apt.grafana.com"
 # Flagged in README.md; evaluate a maintained fork before mainnet. Runs as a
 # container under docker, pinned by digest once one has been chosen
 # (tenderduty_image_digest empty = tag only; fail closed on mainnet).
-tenderduty_image: "ghcr.io/blockpane/tenderduty:latest"
+tenderduty_image: "ghcr.io/blockpane/tenderduty"
+# Pin by digest (sha256:…) — an archived upstream's `latest` tag is exactly
+# the thing that must not be pulled unpinned onto the pager. Fail closed
+# while empty, like every other pin (review, 2026-09-21).
 tenderduty_image_digest: ""
-tenderduty_require_digest: false
+tenderduty_require_digest: true
+# Container isolation: bridge network (no host network), ports published on
+# loopback only, capabilities dropped, read-only rootfs. It reaches the
+# sentries' private IPs through the host's routes like any other process.
+tenderduty_run_opts: >-
+  --cap-drop ALL --read-only --security-opt no-new-privileges
+  --tmpfs /tmp:rw,noexec,nosuid,size=16m
 tenderduty_dir: /etc/tenderduty
 # The image runs as uid/gid 26657; config and state must be readable/
 # writable by it (review, 2026-09-21: root-owned 0600/0750 = a restart loop).

@@ -11,8 +11,9 @@ ExecStart=/usr/local/bin/prometheus \
   --config.file=/etc/prometheus/prometheus.yml \
   --storage.tsdb.path={{ monitoring_data_dir }}/prometheus \
   --storage.tsdb.retention.time={{ prometheus_retention }} \
-  --web.listen-address=127.0.0.1:{{ prometheus_web_port }} \
-  --web.enable-lifecycle
+  --web.listen-address=127.0.0.1:{{ prometheus_web_port }}
+# no --web.enable-lifecycle: reloads go through SIGHUP (below), not an
+# unauthenticated HTTP endpoint (review, 2026-09-21).
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=3

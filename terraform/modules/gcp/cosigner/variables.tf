@@ -31,7 +31,8 @@ variable "ssh_user" {
 }
 
 variable "ssh_public_key" {
-  type = string
+  description = "The cosigner admin key — a different key from the fleet's deploy key (STATUS §5a P21: one leaked deploy key must not be three shards)."
+  type        = string
 }
 
 variable "tags" {
@@ -42,4 +43,9 @@ variable "tags" {
 variable "labels" {
   type    = map(string)
   default = {}
+}
+
+variable "service_account_email" {
+  description = "Dedicated, scope-less service account the instance runs as (envs/<net>/gcp.tf google_service_account.nodes). Never the default Compute SA."
+  type        = string
 }

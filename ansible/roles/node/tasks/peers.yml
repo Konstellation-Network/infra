@@ -1,0 +1,61 @@
+---
+# Peer wiring (ENGINEERING.md §9.2, STATUS §5a P23 interim, 2026-09-21).
+# Node ids are read from each host after `init` (a fact, so every host in
+# the play can see every other's) and the peer lists are built from the
+# inventory:
+#   validators: persistent_peers = ALL same-cloud sentries (not just "its
+#               own" — one DoS'd sentry IP must not isolate a validator),
+#               pex = false (group_vars).
+#   sentries:   persistent_peers = every other sentry, both clouds, on
+#               public IPs (cross-peered), private_peer_ids = the same-
+#               cloud validators, so their addresses are never gossiped.
+# A non-empty `persistent_peers` / `private_peer_ids` in host_vars
+# overrides the computed value. Hosts whose node id is not known (not in
+# this play, e.g. --limit) are left out and reported.
+# Split out so ansible/tests/render_test.yml imports exactly these tasks.
+
+- name: Read this node's id
+  become: "{{ not (node_render_only | default(false) | bool) }}"
+  become_user: "{{ konstellation_user }}"
+  ansible.builtin.command:
+    cmd: "{{ daemon_home }}/cosmovisor/genesis/bin/{{ daemon_name }} comet show-node-id --home {{ daemon_home }}"
+  register: node_id_out
+  changed_when: false
+  when: not (node_render_only | default(false) | bool)
+
+- name: Publish the node id as a fact
+  ansible.builtin.set_fact:
+    node_id: "{{ node_id_out.stdout | trim if node_id_out is not skipped else (node_id | default('')) }}"
+
+- name: Compute the peer lists
+  ansible.builtin.set_fact:
+    p2p_persistent_peers: >-
+      {{ persistent_peers if persistent_peers | length > 0 else (sentry_peer_entries | join(',')) }}
+    p2p_private_peer_ids: >-
+      {{ private_peer_ids if private_peer_ids | length > 0 else (validator_peer_ids | join(',')) }}
+  vars:
+    same_cloud_sentries: >-
+      {{ groups['sentries'] | default([]) | map('extract', hostvars)
+         | selectattr('cloud', 'defined') | selectattr('cloud', '==', cloud)
+         | selectattr('node_id', 'defined') | selectattr('node_id', 'ne', '') | list }}
+    other_sentries: >-
+      {{ groups['sentries'] | default([]) | reject('==', inventory_hostname) | map('extract', hostvars)
+         | selectattr('node_id', 'defined') | selectattr('node_id', 'ne', '') | list }}
+    same_cloud_validators: >-
+      {{ groups['validators'] | default([]) | map('extract', hostvars)
+         | selectattr('cloud', 'defined') | selectattr('cloud', '==', cloud)
+         | selectattr('node_id', 'defined') | selectattr('node_id', 'ne', '') | list }}
+    sentry_peer_entries: >-
+      {{ (same_cloud_sentries | map(attribute='node_id') | zip(same_cloud_sentries | map(attribute='ansible_host')) | map('join', '@') | map('regex_replace', '$', ':26656') | list)
+         if node_role == 'validator' else
+         (other_sentries | map(attribute='node_id') | zip(other_sentries | map(attribute='public_ipv4')) | map('join', '@') | map('regex_replace', '$', ':26656') | list)
+         if node_role == 'sentry' else [] }}
+    validator_peer_ids: "{{ (same_cloud_validators | map(attribute='node_id') | list) if node_role == 'sentry' else [] }}"
+
+- name: Report peers that could not be wired (node id unknown in this run)
+  when: node_role in ['validator', 'sentry'] and p2p_persistent_peers | length == 0
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: persistent_peers is EMPTY — no peer's node id is
+      known in this run. Run site.yml against `chain_nodes` (not --limit) after
+      the first init so the ids are collected, or set persistent_peers in host_vars.

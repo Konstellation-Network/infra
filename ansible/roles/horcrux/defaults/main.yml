@@ -26,6 +26,9 @@ horcrux_privval_port: 1234
 # p2p port base+i on every cosigner host, so the same instance name maps to
 # the same port fleet-wide.
 horcrux_p2p_base_port: 2222
+# Prometheus metrics (horcrux debugAddr), base+i like the p2p port; scraped
+# by the monitoring host only (ufw, roles/firewall).
+horcrux_debug_base_port: 8453
 horcrux_grpc_timeout: 1000ms
 horcrux_raft_timeout: 1000ms
 horcrux_unit_path: /etc/systemd/system/horcrux@.service

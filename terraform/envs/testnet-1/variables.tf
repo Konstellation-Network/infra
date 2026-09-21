@@ -6,7 +6,7 @@ variable "ssh_user" {
 }
 
 variable "ssh_public_key" {
-  description = "Public key for the operator user Ansible connects as, on every host in both clouds."
+  description = "Public key for the `deploy` user Ansible connects as, on every host in both clouds EXCEPT the Horcrux cosigners (cosigner_ssh_public_key). It carries NOPASSWD sudo everywhere it is installed (cloud-init) — see README 'Cosigner admin domains' and STATUS §5a P21."
   type        = string
 }
 
@@ -21,6 +21,27 @@ variable "operator_ssh_cidrs" {
 }
 
 # --- Topology choices (see README.md "Decisions parametrised here") ---
+
+variable "cosigner_ssh_public_key" {
+  description = <<-EOT
+    SSH public key for the Horcrux cosigner hosts (horcrux_mode = dedicated)
+    — a DIFFERENT key from ssh_public_key, held by whoever administers the
+    signing cluster, so one leaked fleet deploy key is not three shards, i.e.
+    the consensus key of all ten validators. Interim for STATUS §5a P21
+    (cosigner admin domains: separate keys/operators per cosigner, hardware-
+    backed, sudo restricted — not decided). Required in dedicated mode and
+    must differ from ssh_public_key; ignored in colocated mode. The
+    cosigner hosts still get the same `deploy` user with NOPASSWD sudo
+    (cloud-init) — the key is what differs, the sudo policy is P21's.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.horcrux_mode != "dedicated" || (length(var.cosigner_ssh_public_key) > 0 && var.cosigner_ssh_public_key != var.ssh_public_key)
+    error_message = "horcrux_mode = dedicated requires cosigner_ssh_public_key, and it must not be the fleet's ssh_public_key (P21)."
+  }
+}
 
 variable "bastion_ssh_entry" {
   description = <<-EOT
@@ -85,7 +106,18 @@ variable "horcrux_mode" {
 }
 
 variable "cosigner_placement" {
-  description = "Cosigner hosts for horcrux_mode = dedicated: 3 (a 2-of-3 threshold, ansible/roles/horcrux horcrux_threshold/horcrux_shares) spread so no single location — or cloud — holds two shards. `location` is a Hetzner location, `zone` a GCP zone; the other is ignored. Order is the shard ID order (c1 = shard 1)."
+  description = <<-EOT
+    Cosigner hosts for horcrux_mode = dedicated: 3 (a 2-of-3 threshold,
+    ansible/roles/horcrux horcrux_threshold/horcrux_shares). `location` is a
+    Hetzner location, `zone` a GCP zone; the other is ignored. Order is the
+    shard ID order (c1 = shard 1). HONEST DEFAULT: with only two clouds, the
+    default puts TWO shards in one hcloud account (fsn1 + hel1) — one Hetzner
+    API token can rescue-boot both servers and reach the threshold. No single
+    *location* holds two shards; a single *provider* does. Fixing that needs
+    a third provider (STATUS §5a P21, ties to P16) — not decided here. A
+    placement with two shards in one cloud is accepted with a warning in
+    the plan output (check "cosigner_placement_warning" in outputs.tf).
+  EOT
   type = list(object({
     cloud    = string
     location = optional(string, "")

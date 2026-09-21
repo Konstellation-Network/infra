@@ -26,6 +26,14 @@ resource "google_compute_subnetwork" "testnet_1" {
   ip_cidr_range = var.gcp_network_ip_range
 }
 
+# Every instance runs as this scope-less service account (modules/gcp/*
+# service_account block): identity without API access. Creating it needs
+# roles/iam.serviceAccountAdmin on the project for whoever applies.
+resource "google_service_account" "nodes" {
+  account_id   = "testnet-1-nodes"
+  display_name = "testnet-1 node instances (no API scopes)"
+}
+
 # Egress for VMs with no public IP (validators, archive, monitoring,
 # cosigners): apt, the checksummed binary download, GitHub. Managed, so
 # the bastion is not in the egress path (contrast modules/hetzner/bastion).
@@ -112,11 +120,13 @@ resource "google_compute_firewall" "bastion_forward" {
 
 # --- Chain traffic ---
 
+# Validators take p2p from this cloud's sentries only — not the /24, which
+# includes the internet-facing RPC node (P23 interim, 2026-09-21).
 resource "google_compute_firewall" "p2p_validator" {
   name          = "testnet-1-gcp-p2p-validator"
   network       = google_compute_network.testnet_1.id
   direction     = "INGRESS"
-  source_ranges = [var.gcp_network_ip_range]
+  source_ranges = [for s in local.gcp_sentries : "${s.private_ip}/32"]
   target_tags   = ["validator"]
 
   allow {
@@ -185,8 +195,8 @@ resource "google_compute_firewall" "rpc_public" {
 # The monitoring host plus the explorer backend (var.explorer_cidrs) — not
 # the fleet, which includes hosts with public interfaces; the JSON-RPC bind
 # itself is the node's private address (ansible group_vars/archive.yml).
-resource "google_compute_firewall" "archive_internal" {
-  name          = "testnet-1-gcp-archive-internal"
+resource "google_compute_firewall" "archive_rpc" {
+  name          = "testnet-1-gcp-archive-rpc"
   network       = google_compute_network.testnet_1.id
   direction     = "INGRESS"
   source_ranges = local.archive_rpc_cidrs
@@ -194,7 +204,24 @@ resource "google_compute_firewall" "archive_internal" {
 
   allow {
     protocol = "tcp"
-    ports    = ["26657", "1317", "8545-8546"]
+    ports    = ["26657"]
+  }
+}
+
+# REST and the debug-enabled JSON-RPC: the explorer only (never the
+# monitoring host). No rule at all until var.explorer_cidrs is set.
+resource "google_compute_firewall" "archive_explorer" {
+  count = length(var.explorer_cidrs) > 0 ? 1 : 0
+
+  name          = "testnet-1-gcp-archive-explorer"
+  network       = google_compute_network.testnet_1.id
+  direction     = "INGRESS"
+  source_ranges = var.explorer_cidrs
+  target_tags   = ["archive"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["1317", "8545-8546"]
   }
 }
 
@@ -264,16 +291,17 @@ locals {
 module "gcp_bastion" {
   source = "../../modules/gcp/bastion"
 
-  name           = "testnet-1-gcp-bastion"
-  zone           = var.gcp_zones[0]
-  region         = var.gcp_region
-  network        = google_compute_network.testnet_1.id
-  subnetwork     = google_compute_subnetwork.testnet_1.id
-  private_ip     = local.gcp_bastion_private_ip
-  ssh_user       = var.ssh_user
-  ssh_public_key = var.ssh_public_key
-  remote_cidrs   = { hetzner = var.hetzner_network_ip_range }
-  labels         = { network = "testnet-1" }
+  name                  = "testnet-1-gcp-bastion"
+  zone                  = var.gcp_zones[0]
+  region                = var.gcp_region
+  network               = google_compute_network.testnet_1.id
+  subnetwork            = google_compute_subnetwork.testnet_1.id
+  private_ip            = local.gcp_bastion_private_ip
+  service_account_email = google_service_account.nodes.email
+  ssh_user              = var.ssh_user
+  ssh_public_key        = var.ssh_public_key
+  remote_cidrs          = { hetzner = var.hetzner_network_ip_range }
+  labels                = { network = "testnet-1" }
 }
 
 module "gcp_validator" {
@@ -281,15 +309,16 @@ module "gcp_validator" {
 
   for_each = local.gcp_validators
 
-  name            = "testnet-1-gcp-validator-${each.key}"
-  zone            = each.value.zone
-  network         = google_compute_network.testnet_1.id
-  subnetwork      = google_compute_subnetwork.testnet_1.id
-  private_ip      = each.value.private_ip
-  local_ssd_count = local.gcp_validator_local_ssd_count
-  ssh_user        = var.ssh_user
-  ssh_public_key  = var.ssh_public_key
-  labels          = { network = "testnet-1" }
+  name                  = "testnet-1-gcp-validator-${each.key}"
+  zone                  = each.value.zone
+  network               = google_compute_network.testnet_1.id
+  subnetwork            = google_compute_subnetwork.testnet_1.id
+  private_ip            = each.value.private_ip
+  local_ssd_count       = local.gcp_validator_local_ssd_count
+  service_account_email = google_service_account.nodes.email
+  ssh_user              = var.ssh_user
+  ssh_public_key        = var.ssh_public_key
+  labels                = { network = "testnet-1" }
 }
 
 module "gcp_sentry" {
@@ -297,41 +326,44 @@ module "gcp_sentry" {
 
   for_each = local.gcp_sentries
 
-  name              = "testnet-1-gcp-sentry-${each.key}"
-  zone              = each.value.zone
-  network           = google_compute_network.testnet_1.id
-  subnetwork        = google_compute_subnetwork.testnet_1.id
-  private_ip        = each.value.private_ip
-  ssh_user          = var.ssh_user
-  ssh_public_key    = var.ssh_public_key
-  validator_node_id = "" # filled in after first boot, once validator node IDs are known — see README.md
-  labels            = { network = "testnet-1" }
+  name                  = "testnet-1-gcp-sentry-${each.key}"
+  zone                  = each.value.zone
+  network               = google_compute_network.testnet_1.id
+  subnetwork            = google_compute_subnetwork.testnet_1.id
+  private_ip            = each.value.private_ip
+  service_account_email = google_service_account.nodes.email
+  ssh_user              = var.ssh_user
+  ssh_public_key        = var.ssh_public_key
+  validator_node_id     = "" # filled in after first boot, once validator node IDs are known — see README.md
+  labels                = { network = "testnet-1" }
 }
 
 module "gcp_archive" {
   source = "../../modules/gcp/archive"
 
-  name           = "testnet-1-gcp-archive-1"
-  zone           = var.gcp_zones[0]
-  network        = google_compute_network.testnet_1.id
-  subnetwork     = google_compute_subnetwork.testnet_1.id
-  private_ip     = local.gcp_archive_private_ip
-  ssh_user       = var.ssh_user
-  ssh_public_key = var.ssh_public_key
-  labels         = { network = "testnet-1" }
+  name                  = "testnet-1-gcp-archive-1"
+  zone                  = var.gcp_zones[0]
+  network               = google_compute_network.testnet_1.id
+  subnetwork            = google_compute_subnetwork.testnet_1.id
+  private_ip            = local.gcp_archive_private_ip
+  service_account_email = google_service_account.nodes.email
+  ssh_user              = var.ssh_user
+  ssh_public_key        = var.ssh_public_key
+  labels                = { network = "testnet-1" }
 }
 
 module "gcp_rpc" {
   source = "../../modules/gcp/rpc"
 
-  name           = "testnet-1-gcp-rpc-1"
-  zone           = var.gcp_zones[0]
-  network        = google_compute_network.testnet_1.id
-  subnetwork     = google_compute_subnetwork.testnet_1.id
-  private_ip     = local.gcp_rpc_private_ip
-  ssh_user       = var.ssh_user
-  ssh_public_key = var.ssh_public_key
-  labels         = { network = "testnet-1" }
+  name                  = "testnet-1-gcp-rpc-1"
+  zone                  = var.gcp_zones[0]
+  network               = google_compute_network.testnet_1.id
+  subnetwork            = google_compute_subnetwork.testnet_1.id
+  private_ip            = local.gcp_rpc_private_ip
+  service_account_email = google_service_account.nodes.email
+  ssh_user              = var.ssh_user
+  ssh_public_key        = var.ssh_public_key
+  labels                = { network = "testnet-1" }
 }
 
 module "gcp_monitoring" {
@@ -339,14 +371,15 @@ module "gcp_monitoring" {
 
   count = var.monitoring_cloud == "gcp" ? 1 : 0
 
-  name           = "testnet-1-gcp-monitoring-1"
-  zone           = var.gcp_zones[0]
-  network        = google_compute_network.testnet_1.id
-  subnetwork     = google_compute_subnetwork.testnet_1.id
-  private_ip     = local.gcp_monitoring_private_ip
-  ssh_user       = var.ssh_user
-  ssh_public_key = var.ssh_public_key
-  labels         = { network = "testnet-1" }
+  name                  = "testnet-1-gcp-monitoring-1"
+  zone                  = var.gcp_zones[0]
+  network               = google_compute_network.testnet_1.id
+  subnetwork            = google_compute_subnetwork.testnet_1.id
+  private_ip            = local.gcp_monitoring_private_ip
+  service_account_email = google_service_account.nodes.email
+  ssh_user              = var.ssh_user
+  ssh_public_key        = var.ssh_public_key
+  labels                = { network = "testnet-1" }
 }
 
 module "gcp_cosigner" {
@@ -354,12 +387,13 @@ module "gcp_cosigner" {
 
   for_each = local.gcp_cosigners
 
-  name           = "testnet-1-gcp-cosigner-${each.key}"
-  zone           = each.value.zone
-  network        = google_compute_network.testnet_1.id
-  subnetwork     = google_compute_subnetwork.testnet_1.id
-  private_ip     = local.cosigner_private_ips[each.key]
-  ssh_user       = var.ssh_user
-  ssh_public_key = var.ssh_public_key
-  labels         = { network = "testnet-1" }
+  name                  = "testnet-1-gcp-cosigner-${each.key}"
+  zone                  = each.value.zone
+  network               = google_compute_network.testnet_1.id
+  subnetwork            = google_compute_subnetwork.testnet_1.id
+  private_ip            = local.cosigner_private_ips[each.key]
+  service_account_email = google_service_account.nodes.email
+  ssh_user              = var.ssh_user
+  ssh_public_key        = var.cosigner_ssh_public_key # NOT the deploy key — P21
+  labels                = { network = "testnet-1" }
 }

@@ -32,7 +32,8 @@ variable "firewall_ids" {
 }
 
 variable "ssh_public_key" {
-  type = string
+  description = "The cosigner admin key — a different key from the fleet's deploy key (STATUS §5a P21: one leaked deploy key must not be three shards)."
+  type        = string
 }
 
 variable "default_route_via" {

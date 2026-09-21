@@ -53,7 +53,7 @@ a drop-in, terraform-compatible CLI; `terraform` itself works identically),
 in `ansible/.ansible-lint`, a credential-free `tofu plan` of `envs/testnet-1`
 against a scratch local backend for every topology combination
 (`bastion_ssh_entry` × `monitoring_cloud` × `horcrux_mode`; 2026-09-21
-counts: 57–59 resources colocated, 62–64 dedicated — the range is the
+counts: 58–60 resources colocated, 63–65 dedicated — the range is the
 optional operator-SSH firewall rule and the monitoring host's cloud), the
 inventory/ssh_config templates rendered via `tofu console`, and
 **`ansible/tests/render_test.yml`** — rendered-template regressions
@@ -61,12 +61,15 @@ inventory/ssh_config templates rendered via `tofu console`, and
 controller-only, touches no host). It imports the roles' own task files
 (`import_role … tasks_from`) so the shipped tasks run with real variable
 precedence, and it is kept honest by the mutation set in its header — five
-deliberate breakages that each must fail it (verified 2026-09-21). Covers:
+deliberate breakages that each must fail it (seven as of 2026-09-21, all
+verified). Covers:
 the cosmovisor `current` symlink guard, the data-rebuild guard
 (`roles/node/tasks/data_guard.yml`, §2.7), the mount guard on the node
 unit, WireGuard source routes, bastion scrape targets, Prometheus's own
 port not colliding with CometBFT's `prometheus_port` (a real bug the test
-found), tenderduty's uid and targets, horcrux's per-validator instances. Not
+found), tenderduty's isolation, digest pin and targets, peer wiring (validators ←
+same-cloud sentries only, sentries cross-peered), horcrux's per-validator
+instances and metrics endpoints. Not
 verified: an actual `apply` (needs a real Hetzner token and GCP project) or
 anything ansible actually touching a live host — including the WireGuard
 tunnel, the Hetzner NAT path and the per-validator horcrux instances, all
@@ -121,13 +124,25 @@ Why this and not the alternatives:
   material. Rejected.
 
 Costs of the choice, stated plainly: the bastions are now routers (kernel
-forwarding; sshd is still their only userland listener), the tunnel is a
-single point of failure for cross-cloud *management* traffic (never for
-consensus — validator↔sentry stays local), and a tunnel outage in
-dedicated-horcrux mode drops the far cloud's cosigner out of each 2-of-3
-cluster (still quorate). WireGuard keys are generated on each bastion by
-`ansible/roles/wireguard` and never leave it; only public keys travel, as
-Ansible facts within one play.
+forwarding; sshd is still their only userland listener); the tunnel is a
+single point of failure for cross-cloud *management* traffic
+(validator↔sentry p2p never crosses it); and **in dedicated-horcrux mode
+it is a single point of failure for consensus too** (adversarial review,
+2026-09-21; STATUS §5a P22): the cosigners reach each other *through the
+tunnel*, so a tunnel outage partitions the far cloud's cosigner from the
+other two — and since each cluster's quorum path for the validators in
+*that* cloud runs across the tunnel, 5 of the 10 validators stop signing
+and the chain halts within seconds. `CloudUnreachable` says so. An
+earlier version of this paragraph claimed "still quorate"; it was wrong.
+**Design note (P22, not built):** the cosigners need their own
+peer-pinned mesh — WireGuard between the three cosigner hosts over their
+own public IPs (or redundant tunnels), pinned to each other's keys, so
+that horcrux raft/grpc never depends on the bastions. Until that exists,
+`dedicated` mode is a liveness downgrade, not only a key-safety upgrade;
+testnet-1 runs `colocated`. WireGuard keys are generated on each bastion
+by `ansible/roles/wireguard` and never leave it; only public keys travel,
+as Ansible facts within one play, and each side refuses a fact that is not
+a 32-byte base64 key before templating it into root's `wg0.conf`.
 
 **Hetzner-specific:** hcloud firewalls filter the *public* interface only,
 so hosts with no public IP are not covered by them at all — `ansible/roles/
@@ -138,6 +153,35 @@ something NATs for it; the bastion does (`nat_gateway = true`, an
 Hetzner host pointing its default route at the network gateway). Without
 this the validators could never `apt-get` or fetch their checksummed
 binary — a gap in the original scaffold, closed here.
+
+### Cosigner admin domains (P21) — interim
+
+One `deploy` SSH key with `NOPASSWD` sudo on every host was the original
+scaffold, cosigners included: one leaked key = three shards = the consensus
+key of all ten validators. **Interim (2026-09-21):** `var.cosigner_ssh_public_key`
+is a separate key wired only into `modules/{hetzner,gcp}/cosigner`,
+required in dedicated mode and validated to differ from `ssh_public_key`.
+What it does **not** do — and what STATUS §5a P21 has to decide before
+mainnet: the cosigner hosts still get the same `deploy` user with
+unrestricted sudo (cloud-init), the three cosigners still share *one*
+key, and the default `cosigner_placement` still puts two shards in one
+Hetzner account (`fsn1` + `hel1`), so one hcloud API token can rescue-boot
+a threshold — the plan prints `cosigner_placement_warning` for it.
+Per-cosigner keys/operators, hardware-backed keys, restricted sudo and a
+third provider are P21/P16, not this branch.
+
+### Sentry topology (P23) — interim
+
+One sentry per validator was the original scaffold. **Interim
+(2026-09-21):** `ansible/roles/node/tasks/peers.yml` wires every validator
+to *all* its cloud's sentries (5 today) and cross-peers every sentry with
+every other on public IPs, with `private_peer_ids` = the same-cloud
+validators; node ids are read after `init` so nothing is hand-copied. The
+cloud firewalls and ufw admit p2p on validators from those sentries' /32s
+only — the /24 used to include the internet-facing RPC node. Still P23: the
+sentry *count* (≥ 2 per validator is the target; today the redundancy
+comes from sharing the cloud's five) and a DoS on all five of a cloud's
+sentry IPs still isolates that cloud's validators.
 
 ### Decisions parametrised here (defaults chosen, not decided)
 
@@ -206,6 +250,12 @@ that disk, which is most of the risk.
   `terraform/envs/konstellation-1/` and `runbooks/` as separate lines.
 
 ## Known gaps — still open
+
+- **Public RPC node exposes CometBFT RPC 26657 and REST 1317 to the
+  internet** (`group_vars/rpc.yml`, `rpc_public` firewall) — unauthenticated,
+  unmetered, a DoS surface. Acceptable for testnet-1 behind the
+  `minimum-gas-prices` floor; put a rate-limiting reverse proxy in front
+  (or move RPC to the app tier, `ENGINEERING.md §9.1`) before mainnet.
 
 - **Terraform state backend** (`terraform/envs/testnet-1/backend.tf`) is a
   partial `gcs` config with no bucket chosen. **Human decision.**

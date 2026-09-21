@@ -2,9 +2,11 @@
 node_role: sentry
 
 pex: true
-# private_peer_ids: the shielded validator's node ID, so it's never gossiped
-# over pex. Per-host — set in host_vars, one value per sentry.
+# private_peer_ids (the same-cloud validators' node ids, never gossiped) and
+# persistent_peers (every other sentry, cross-peered) are computed by
+# roles/node/tasks/peers.yml; set here/in host_vars only to override.
 private_peer_ids: ""
+persistent_peers: ""
 
 pruning: custom
 pruning_keep_recent: "100"

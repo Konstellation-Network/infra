@@ -152,13 +152,56 @@ Blocks resume once ⅔+ voting power is on the new binary. Then:
 | Chain halts at H, only some validators come back | the others have the wrong binary or no binary staged; they stay stopped until fixed, chain resumes at ⅔+ |
 | Blocks resume, `app_hash` differs across validators | a non-deterministic migration; halt immediately (`emergency-halt.md` tool 2 at current+5) and rollback |
 
-**Rollback** (the plan the upgrade file promised): every validator stops;
-restore `data/` from the pre-height snapshot on every node (state-breaking) or
-`konstellationd rollback` once (non-state-breaking, one block); repoint
-`cosmovisor/current` at the previous version's directory; **do not touch
-`priv_validator_state.json`** (`§2.7`; with horcrux, the cosigners' state
-files); restart sentries then validators. Then a `cancel-software-upgrade`
-proposal on mainnet, so the plan does not re-fire.
+**Rollback** — *rehearse this in phase 5 before trusting it* (an earlier
+draft of this section would have tombstoned the whole set; adversarial
+review, 2026-09-21). Two facts decide everything here:
+
+- At the upgrade height the validators have **already precommitted block
+  H**: `x/upgrade` panics in PreBlock, *after* +⅔ precommits exist. Every
+  validator's `priv_validator_state.json` therefore records height H.
+- That file lives **inside `data/`** (`data/priv_validator_state.json`,
+  CometBFT default). "Restore `data/` from the snapshot" restores the
+  state file too — to a height *below* H. Ten validators re-running
+  consensus at H with a rewound state file would happily sign a
+  *different* block H: `DuplicateVoteEvidence` for the entire set, 5 %
+  slash and tombstone (D10), submittable by anyone who kept the original
+  block. Also: `konstellationd snapshots export` is an *app-state*
+  snapshot for state-sync; it is not a blockstore rollback.
+
+So, for a **failed upgrade handler** (the common case):
+
+1. Every validator stops (they have, by panicking).
+2. **Do not restore `data/`.** Tell the *old* binary to skip the plan:
+   ```sh
+   # cosmovisor/current -> the previous version's directory, then
+   cosmovisor run start --unsafe-skip-upgrades <H> --home $DAEMON_HOME
+   ```
+   i.e. set `--unsafe-skip-upgrades H` on the old binary's `start` (add it
+   to the unit's `ExecStart` for the duration, or run it by hand once) and
+   repoint `cosmovisor/current` at the old version. Also move
+   `data/upgrade-info.json` aside: cosmovisor re-reads it on start and
+   would swap `current` back to the failed version. The chain continues
+   at H+1 on the old binary; block H stands as committed; nothing is
+   re-signed. Remove the flag once past H.
+3. Restart sentries, then validators one at a time (`emergency-halt.md`
+   B7). On mainnet, a `cancel-software-upgrade` proposal so the plan does
+   not re-fire; on testnet, `--unsafe-skip-upgrades` on every node is the
+   equivalent.
+
+For the rare case where `data/` **must** be restored (a migration that
+corrupted state and committed): before touching anything, **copy every
+validator's current `data/priv_validator_state.json` aside** (it records
+H); restore `data/`; **put the current state file back**; only then
+start. Keeping the state file at H is what makes re-running consensus
+safe: the node refuses to sign anything at height ≤ H, so the worst case
+is a validator that abstains for one height, never one that double-signs.
+With Horcrux the equivalent is each cosigner's `state/` directory — never
+touched, never restored from anywhere. `konstellationd rollback` (one
+block; `--hard` also rewinds the app state, needed when a state-breaking
+handler committed) rewinds the *blockstore*, not the signing state, which
+is why it is safe where a `data/` restore is not — but it too is "every
+validator, once, to the same height", and only after the H-1 snapshot
+exists.
 
 ## 8. After
 

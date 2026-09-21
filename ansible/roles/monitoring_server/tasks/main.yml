@@ -6,12 +6,12 @@
       - alertmanager_sha256 | length > 0
     fail_msg: "prometheus_sha256 and alertmanager_sha256 must be set — never install unverified."
 
-- name: Fail if tenderduty is not pinned by digest where required
+- name: Fail if tenderduty is not pinned by digest
   when: tenderduty_require_digest | bool
   ansible.builtin.assert:
     that:
-      - tenderduty_image_digest | length > 0
-    fail_msg: "tenderduty_require_digest is set but tenderduty_image_digest is empty."
+      - tenderduty_image_digest is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: "tenderduty_image_digest must be a sha256:<64 hex> digest (tenderduty_require_digest is on by default; never deploy the pager from a floating tag)."
 
 - name: Warn about validator entries with no valoper address
   when: item.valoper | default('') | length == 0
@@ -84,16 +84,39 @@
 
 # --- prometheus ---
 
+- name: Root-owned download cache (never /tmp — a pre-existing file there could be swapped between download and extract)
+  ansible.builtin.file:
+    path: /var/cache/konstellation
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
 - name: Download prometheus, verify sha256
   ansible.builtin.get_url:
     url: "{{ prometheus_release_url }}"
-    dest: /tmp/prometheus.tar.gz
+    dest: /var/cache/konstellation/prometheus.tar.gz
+    force: true  # always re-fetch into the root-only cache; the checksum below is what gates extraction
+    owner: root
+    group: root
     checksum: "sha256:{{ prometheus_sha256 }}"
     mode: "0644"
 
+- name: Re-verify the cached prometheus tarball immediately before extracting as root
+  ansible.builtin.stat:
+    path: /var/cache/konstellation/prometheus.tar.gz
+    checksum_algorithm: sha256
+  register: prometheus_tarball
+
+- name: Fail if the prometheus tarball changed between download and extract
+  ansible.builtin.assert:
+    that:
+      - prometheus_tarball.stat.checksum == prometheus_sha256
+    fail_msg: "prometheus tarball checksum mismatch at extract time — refusing."
+
 - name: Extract prometheus + promtool
   ansible.builtin.unarchive:
-    src: /tmp/prometheus.tar.gz
+    src: /var/cache/konstellation/prometheus.tar.gz
     dest: /usr/local/bin
     remote_src: true
     extra_opts:
@@ -120,13 +143,28 @@
 - name: Download alertmanager, verify sha256
   ansible.builtin.get_url:
     url: "{{ alertmanager_release_url }}"
-    dest: /tmp/alertmanager.tar.gz
+    dest: /var/cache/konstellation/alertmanager.tar.gz
+    force: true  # always re-fetch into the root-only cache; the checksum below is what gates extraction
+    owner: root
+    group: root
     checksum: "sha256:{{ alertmanager_sha256 }}"
     mode: "0644"
 
+- name: Re-verify the cached alertmanager tarball immediately before extracting as root
+  ansible.builtin.stat:
+    path: /var/cache/konstellation/alertmanager.tar.gz
+    checksum_algorithm: sha256
+  register: alertmanager_tarball
+
+- name: Fail if the alertmanager tarball changed between download and extract
+  ansible.builtin.assert:
+    that:
+      - alertmanager_tarball.stat.checksum == alertmanager_sha256
+    fail_msg: "alertmanager tarball checksum mismatch at extract time — refusing."
+
 - name: Extract alertmanager + amtool
   ansible.builtin.unarchive:
-    src: /tmp/alertmanager.tar.gz
+    src: /var/cache/konstellation/alertmanager.tar.gz
     dest: /usr/local/bin
     remote_src: true
     extra_opts:
@@ -185,6 +223,29 @@
   args:
     executable: /bin/bash
     creates: /etc/apt/keyrings/grafana.gpg
+
+# The key came over TLS from grafana.com — same origin as the packages it
+# signs, so on its own it proves nothing. Pin the fingerprint recorded
+# out of band (grafana_apt_key_fingerprint, from Grafana's docs page, not
+# from the key file) and refuse to proceed if it differs.
+- name: Read the installed grafana key fingerprint
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --show-keys --with-colons /etc/apt/keyrings/grafana.gpg | awk -F: '$1=="fpr"{print $10; exit}'
+  args:
+    executable: /bin/bash
+  register: grafana_key_fpr
+  changed_when: false
+
+- name: Fail if the grafana key fingerprint is not the pinned one
+  ansible.builtin.assert:
+    that:
+      - grafana_apt_key_fingerprint | length > 0
+      - grafana_key_fpr.stdout | upper == grafana_apt_key_fingerprint | upper
+    fail_msg: >-
+      grafana apt key fingerprint {{ grafana_key_fpr.stdout }} != pinned
+      {{ grafana_apt_key_fingerprint }} — set grafana_apt_key_fingerprint from
+      Grafana's published docs (not from the downloaded key) or investigate.
 
 - name: Install python3-debian (deb822_repository needs it on the target)
   ansible.builtin.apt:

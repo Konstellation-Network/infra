@@ -40,6 +40,43 @@ groups:
           summary: "{{ $labels.instance }} missed more than 5 blocks in the last 10 minutes"
           runbook: infra/runbooks/validator-key-rotation.md
 
+      # missed_blocks only counts while the validator is in LastValidators:
+      # a JAILED validator raises nothing there. This does — its last signed
+      # height stops moving while the chain's height does not (review,
+      # 2026-09-21). Scraped on the validator itself (validator_address is
+      # its own), so also covers a validator whose signer (horcrux) is stuck.
+      - alert: ValidatorNotSigning
+        expr: |
+          (cometbft_consensus_height{role="validator"} - on(instance) cometbft_consensus_validator_last_signed_height{role="validator"}) > 20
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} has not signed for more than 20 blocks — jailed, key/horcrux stuck, or partitioned"
+          runbook: infra/runbooks/validator-key-rotation.md
+
+      # The active set changed: a validator jailed/unbonded or admitted
+      # (D16) — either way a human should know within minutes.
+      - alert: ValidatorSetChanged
+        expr: changes(cometbft_consensus_validators[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "the active validator set size changed in the last 10 minutes (now {{ $value }} on {{ $labels.instance }})"
+          runbook: infra/runbooks/validator-admission.md
+
+      # Dedicated horcrux: a cosigner instance whose metrics vanish is a
+      # shard out of the cluster; two gone is that validator halted.
+      - alert: CosignerDown
+        expr: up{job="horcrux"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "horcrux instance for {{ $labels.validator }} on {{ $labels.instance }} is not answering — one shard out of the 2-of-3 cluster"
+          runbook: infra/runbooks/validator-key-rotation.md
+
       - alert: FallingPeerCount
         expr: cometbft_p2p_peers < 2
         for: 5m
@@ -64,7 +101,7 @@ groups:
           summary: "{{ $labels.instance }} is producing blocks at less than half the expected ~0.67/s rate (block time > 3 s)"
 
       - alert: DiskHeadroomLow
-        expr: node_filesystem_avail_bytes{mountpoint=~"/|/home.*"} / node_filesystem_size_bytes{mountpoint=~"/|/home.*"} < 0.15
+        expr: node_filesystem_avail_bytes{mountpoint=~"/|/home.*|/var/lib/monitoring"} / node_filesystem_size_bytes{mountpoint=~"/|/home.*|/var/lib/monitoring"} < 0.15
         for: 15m
         labels:
           severity: warning
@@ -72,7 +109,7 @@ groups:
           summary: "{{ $labels.instance }} has less than 15% disk headroom on {{ $labels.mountpoint }}"
 
       - alert: DiskHeadroomCritical
-        expr: node_filesystem_avail_bytes{mountpoint=~"/|/home.*"} / node_filesystem_size_bytes{mountpoint=~"/|/home.*"} < 0.05
+        expr: node_filesystem_avail_bytes{mountpoint=~"/|/home.*|/var/lib/monitoring"} / node_filesystem_size_bytes{mountpoint=~"/|/home.*|/var/lib/monitoring"} < 0.05
         for: 5m
         labels:
           severity: critical
@@ -89,9 +126,13 @@ groups:
 
       # Every node_exporter target in one cloud unreachable at once is not
       # N dead hosts: it is the bastions' WireGuard tunnel (README.md
-      # "Cross-cloud connectivity") or that cloud's network. Consensus is
-      # unaffected (validator<->sentry never crosses the tunnel); management,
-      # scrape and dedicated-horcrux cosigner traffic is.
+      # "Cross-cloud connectivity") or that cloud's network. Validator<->
+      # sentry p2p never crosses the tunnel, BUT in dedicated horcrux mode
+      # the cosigners do (STATUS §5a P22): the far cloud's cosigner is
+      # partitioned from the other two, and every validator whose signing
+      # cluster just lost its quorum path stops signing — with 5 of 10
+      # validators per cloud that is a chain halt within seconds. Treat as
+      # a halt in progress until proven otherwise.
       - alert: CloudUnreachable
         expr: |
           count by (cloud) (up{job="node-exporter", cloud!=""} == 0)
@@ -100,8 +141,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "every host in cloud {{ $labels.cloud }} is unreachable from the monitoring host — tunnel or cloud outage"
-          runbook: infra/runbooks/on-call.md
+          summary: "every host in cloud {{ $labels.cloud }} is unreachable from the monitoring host — tunnel or cloud outage; DEDICATED HORCRUX MODE: chain halt imminent (cosigner partitioned, P22)"
+          runbook: infra/runbooks/emergency-halt.md
 
       # The pager itself. tenderduty's /metrics gone for 5 minutes means
       # validator paging is silently off.

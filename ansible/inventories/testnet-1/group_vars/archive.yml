@@ -27,3 +27,7 @@ api_enabled: true            # 1317 likewise
 # explorer_cidrs here.
 archive_rpc_allowed_cidrs:
   - "{{ monitoring_host_private_ip }}/32"
+# REST (1317) and the debug-enabled JSON-RPC (8545-8546): the explorer's
+# address(es) only, once it exists — the monitoring host has no business
+# on either (review, 2026-09-21). Mirror terraform's explorer_cidrs.
+archive_explorer_cidrs: []

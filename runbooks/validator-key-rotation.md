@@ -43,10 +43,14 @@ enable anything key-shaped — that is this section, done by a human.
    its directory.
 3. **Place each shard on its cosigner**, over the bastion, one at a time:
    ```sh
-   # never through /tmp (world-readable): a 0700 staging dir in deploy's home
-   ssh -F ansible/inventories/<net>/ssh_config <cosigner-host-1> 'mkdir -m 0700 -p ~/ceremony'
-   scp -F ansible/inventories/<net>/ssh_config cosigner_1/* <cosigner-host-1>:~/ceremony/
-   ssh -F ansible/inventories/<net>/ssh_config <cosigner-host-1> \
+   # The ceremony machine must already trust the host keys: ssh_config's
+   # accept-new is fine for ansible, not for moving shards — pre-seed
+   # known_hosts from the bastion (or the provider console) and force
+   # StrictHostKeyChecking=yes for these commands. Never through /tmp
+   # (world-readable): a 0700 staging dir in deploy's home.
+   ssh -F ansible/inventories/<net>/ssh_config -o StrictHostKeyChecking=yes <cosigner-host-1> 'mkdir -m 0700 -p ~/ceremony'
+   scp -F ansible/inventories/<net>/ssh_config -o StrictHostKeyChecking=yes cosigner_1/* <cosigner-host-1>:~/ceremony/
+   ssh -F ansible/inventories/<net>/ssh_config -o StrictHostKeyChecking=yes <cosigner-host-1> \
      'sudo install -o konstellation -g konstellation -m 0600 ~/ceremony/<net>_shard.json ~/ceremony/ecies_keys.json \
         /home/konstellation/.horcrux/<instance>/ && shred -u ~/ceremony/* && rmdir ~/ceremony'
    ```
@@ -56,13 +60,15 @@ enable anything key-shaped — that is this section, done by a human.
    number placed there — this is what the templated `config.yaml`'s
    `cosigners` list assumes.
 4. **Seed the signing state** so the cluster cannot sign below the height
-   the validator last signed: on each cosigner, write
-   `<home>/state/<net>_priv_validator_state.json` with the height/round/step
-   from step 1 (`horcrux state import` if the version supports it, else
-   `horcrux state set <height>` — check `horcrux state --help` for the
-   pinned version). **Stop and read the horcrux docs for the pinned version
-   before this step; a wrong height here is the one way this ceremony can
-   double-sign.**
+   the validator last signed. Horcrux v3 has `state import <chain-id>`
+   (reads a `priv_validator_state.json` on stdin — height, round *and*
+   step) and `state set <chain-id> <height>` (height only: round and step
+   become 0, which would let the cluster sign a *later round* of the last
+   height the validator already voted in). So either `import` the exact
+   file from step 1 on each cosigner, or `state set <net> <H+1>` where H is
+   the height from step 1 — one above, never equal. Check `horcrux state
+   --help` for the pinned version. **A wrong height here is the one way
+   this ceremony can double-sign.**
 5. **Remove the whole key from the validator host.** `shred -u
    priv_validator_key.json` (keep a copy *only* in the cold backup that the
    shards were made from, offline). A host that still holds the full key

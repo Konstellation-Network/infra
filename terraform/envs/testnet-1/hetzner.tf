@@ -36,15 +36,14 @@ resource "hcloud_firewall" "validator" {
     source_ips = [for ip in local.hetzner_ssh_sources : "${ip}/32"]
   }
 
-  # p2p from sentries. Scoped to the private subnet, not per-sentry IP — the
-  # actual "only my sentries" restriction is enforced at the CometBFT layer
-  # (persistent_peers + pex=false, ansible/roles/node). Defense in depth, not
-  # the primary control.
+  # p2p from this cloud's sentries only — not the /24 (P23 interim,
+  # 2026-09-21); persistent_peers + pex=false (ansible/roles/node) is the
+  # CometBFT-layer half of the same restriction.
   rule {
     direction  = "in"
     protocol   = "tcp"
     port       = "26656"
-    source_ips = [var.hetzner_network_ip_range]
+    source_ips = [for s in local.hetzner_sentries : "${s.private_ip}/32"]
   }
 
   # Metrics: the monitoring host may be in either cloud.
@@ -132,13 +131,22 @@ resource "hcloud_firewall" "archive" {
   # per port: hcloud rule ports are a single port or a range, never a
   # comma list (the earlier "1317,8545,8546,26657" would have failed at
   # apply, not validate).
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "26657"
+    source_ips = local.archive_rpc_cidrs
+  }
+
+  # REST and the debug-enabled JSON-RPC: the explorer only, never the
+  # monitoring host; no rule until var.explorer_cidrs is set.
   dynamic "rule" {
-    for_each = ["1317", "8545-8546", "26657"]
+    for_each = length(var.explorer_cidrs) > 0 ? ["1317", "8545-8546"] : []
     content {
       direction  = "in"
       protocol   = "tcp"
       port       = rule.value
-      source_ips = local.archive_rpc_cidrs
+      source_ips = var.explorer_cidrs
     }
   }
 
@@ -316,7 +324,7 @@ module "hetzner_cosigner" {
   network_id        = hcloud_network.testnet_1.id
   private_ip        = local.cosigner_private_ips[each.key]
   firewall_ids      = [hcloud_firewall.internal.id]
-  ssh_public_key    = var.ssh_public_key
+  ssh_public_key    = var.cosigner_ssh_public_key # NOT the deploy key — P21
   default_route_via = local.hetzner_gateway
   labels            = { network = "testnet-1" }
 

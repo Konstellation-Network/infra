@@ -44,8 +44,13 @@ is open from genesis (D7).
      D10) or the message fails and the window was wasted.
    - The message **pre-built and pre-signed**, delivered as a file:
      ```sh
+     # explicit fee and a timeout: a zero-fee tx fails inside the window
+     # with "insufficient fee" and forces a new window; the timeout-height
+     # makes a stale pre-signed tx unusable after the window.
      konstellationd tx staking create-validator validator.json \
        --from <operator> --chain-id <net> --node <rpc> \
+       --gas 300000 --gas-prices 10000000000esp \
+       --timeout-height <window end height + margin> \
        --generate-only > unsigned.json
      konstellationd tx sign unsigned.json --from <operator> --chain-id <net> --node <rpc> > signed-create-validator.json
      ```
@@ -111,12 +116,13 @@ is fixed.
 
 What the window exposes, and why it is acceptable (D16): anyone watching
 the mempool could slip their own `MsgCreateValidator` into the same
-blocks. A validator created that way has whatever stake its creator
-delegates; with 10 foundation validators holding foundation-scale stake
-and `max_validators` 30 (D10) it enters the active set only if it
-out-stakes the foundation's, which is not a mempool race. It also cannot
-be un-created — if one appears, it is a validator like any other, and its
-existence goes in the write-up. If this ever becomes a real problem, the
+blocks. A validator created that way **does enter the active set** —
+`max_validators` is 30 (D10) and only 10 seats are taken, so any bonded
+validator is in the set; what its stake decides is its *voting power*,
+which next to ten foundation-scale validators is negligible, and it can
+be jailed for downtime like any other. It cannot be un-created — if one
+appears, it is a validator like any other, and its existence goes in the
+write-up. If this ever becomes a real problem, the
 recorded fallback is gating the same message on `x/compliance`'s
 allowlist in the ante handler; it is deliberately not built (it would
 break D6's "allowlisting is never required" rule).

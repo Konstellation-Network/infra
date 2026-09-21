@@ -10,6 +10,7 @@
       - name: "{{ chain_id }}"
         privval_addr: "tcp://127.0.0.1:{{ horcrux_privval_port }}"
         p2p_port: "{{ horcrux_p2p_base_port }}"
+        debug_port: "{{ horcrux_debug_base_port }}"
         cosigners: []
 
 - name: Collect the cosigner hosts (dedicated)
@@ -30,6 +31,7 @@
            'name': item,
            'privval_addr': 'tcp://' ~ hostvars[item]['ansible_host'] ~ ':' ~ horcrux_privval_port,
            'p2p_port': horcrux_p2p_base_port + idx,
+           'debug_port': horcrux_debug_base_port + idx,
            'cosigners': horcrux_cosigner_hosts | map('combine', {'p2p_port': horcrux_p2p_base_port + idx}) | list
          }] }}
   loop: "{{ groups['validators'] | sort }}"

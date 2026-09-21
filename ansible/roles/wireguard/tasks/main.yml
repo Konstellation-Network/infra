@@ -53,17 +53,25 @@
   register: wg_pubkey
   changed_when: false
 
+- name: Refuse anything that is not a WireGuard public key (it is templated into the PEER's root-owned config)
+  ansible.builtin.assert:
+    that:
+      - wg_pubkey.stdout is match('^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$')
+    fail_msg: "wg pubkey output is not a 32-byte base64 key: {{ wg_pubkey.stdout | truncate(60) }}"
+
 - name: Publish this host's public key as a fact for the peer's template
   ansible.builtin.set_fact:
     wireguard_public_key: "{{ wg_pubkey.stdout }}"
 
-- name: Fail if the peer's public key is not available
+- name: Fail if the peer's published key is not a WireGuard public key either
   ansible.builtin.assert:
     that:
       - hostvars[wireguard_peer]['wireguard_public_key'] is defined
+      - hostvars[wireguard_peer]['wireguard_public_key'] is match('^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$')
     fail_msg: >-
-      {{ wireguard_peer }} has no wireguard_public_key fact — both bastions must be
-      in the same play (site.yml `hosts: bastions`); do not --limit to one of them.
+      {{ wireguard_peer }}'s wireguard_public_key fact is missing or malformed —
+      it would be written into this host's wg0.conf as root. Both bastions must
+      be in the same play (site.yml `hosts: bastions`); do not --limit to one.
 
 - name: Template the interface config (PostUp reads the key file; the key is not in the config)
   ansible.builtin.template:

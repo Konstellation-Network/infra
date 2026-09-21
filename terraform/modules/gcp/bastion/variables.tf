@@ -55,3 +55,8 @@ variable "labels" {
   type    = map(string)
   default = {}
 }
+
+variable "service_account_email" {
+  description = "Dedicated, scope-less service account the instance runs as (envs/<net>/gcp.tf google_service_account.nodes). Never the default Compute SA."
+  type        = string
+}

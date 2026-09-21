@@ -107,13 +107,25 @@
 
 # --- Chain traffic ---
 
-- name: Allow p2p (26656) from the private network only — validators
+# Validators take p2p from their own cloud's sentries only — not the /24,
+# which includes the internet-facing RPC node (P23 interim, 2026-09-21).
+- name: Allow p2p (26656) from the same-cloud sentries only — validators
   when: node_role == 'validator'
   community.general.ufw:
     rule: allow
     port: "26656"
     proto: tcp
-    src: "{{ network_cidr }}"
+    src: "{{ hostvars[item]['ansible_host'] }}"
+  loop: "{{ groups['sentries'] | default([]) | select('in', same_cloud_sentry_hosts) | list }}"
+  vars:
+    same_cloud_sentry_hosts: "{{ hostvars | dict2items | selectattr('value.cloud', 'defined') | selectattr('value.cloud', '==', cloud) | map(attribute='key') | list }}"
+
+- name: Fail if a validator has no same-cloud sentry to take p2p from
+  when: node_role == 'validator'
+  ansible.builtin.assert:
+    that:
+      - groups['sentries'] | default([]) | map('extract', hostvars) | selectattr('cloud', 'defined') | selectattr('cloud', '==', cloud) | list | length > 0
+    fail_msg: "{{ inventory_hostname }} has no sentry in cloud {{ cloud }} — it would have no p2p path at all."
 
 - name: Allow p2p (26656) from anywhere — sentries and rpc
   when: node_role in ['sentry', 'rpc']
@@ -149,14 +161,25 @@
       - archive_rpc_allowed_cidrs | reject('match', '^[0-9.]+/(2[4-9]|3[0-2])$') | list | length == 0
     fail_msg: "archive_rpc_allowed_cidrs must be non-empty IPv4 prefixes of /24 or narrower (the archive's debug JSON-RPC is never opened wider)."
 
-- name: Allow internal-only RPC/REST/JSON-RPC ports — archive only
+# 26657 for the monitoring host (tenderduty) and the explorer; REST and the
+# debug-enabled JSON-RPC for the explorer only (review, 2026-09-21).
+- name: Allow CometBFT RPC (26657) from the monitoring host and the explorer — archive only
+  when: node_role == 'archive'
+  community.general.ufw:
+    rule: allow
+    port: "26657"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ archive_rpc_allowed_cidrs }}"
+
+- name: Allow REST/JSON-RPC (1317, 8545-8546) from the explorer only — archive only
   when: node_role == 'archive'
   community.general.ufw:
     rule: allow
     port: "{{ item.0 }}"
     proto: tcp
     src: "{{ item.1 }}"
-  loop: "{{ ['26657', '1317', '8545:8546'] | product(archive_rpc_allowed_cidrs) | list }}"
+  loop: "{{ ['1317', '8545:8546'] | product(archive_explorer_cidrs) | list }}"
 
 # --- Horcrux, dedicated mode: cosigners dial validators' priv_validator_laddr
 #     and each other's raft/grpc port. Exact cosigner IPs, not CIDRs. ---
@@ -169,6 +192,14 @@
     proto: tcp
     src: "{{ hostvars[item]['ansible_host'] }}"
   loop: "{{ groups['cosigners'] | default([]) }}"
+
+- name: Allow horcrux metrics (debugAddr) from the monitoring host — cosigners
+  when: node_role == 'cosigner'
+  community.general.ufw:
+    rule: allow
+    port: "{{ horcrux_debug_base_port }}:{{ horcrux_debug_base_port + (groups['validators'] | length) - 1 }}"
+    proto: tcp
+    src: "{{ monitoring_host_private_ip }}"
 
 - name: Allow cosigner-to-cosigner raft/grpc — cosigners
   when: node_role == 'cosigner'

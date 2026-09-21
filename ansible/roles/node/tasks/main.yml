@@ -212,6 +212,9 @@
 # template — a from-scratch template here would silently drift from whatever
 # `init` produces and reintroduce the exact class of bug that was removed.
 
+- name: Wire peers from the inventory (tasks/peers.yml)
+  ansible.builtin.import_tasks: peers.yml
+
 - name: Reconcile config.toml [p2p]
   community.general.ini_file:
     path: "{{ daemon_home }}/config/config.toml"
@@ -224,8 +227,8 @@
   loop:
     - { option: "pex", value: "{{ pex | lower }}" }
     - { option: "seeds", value: '"{{ seeds }}"' }
-    - { option: "persistent_peers", value: '"{{ persistent_peers }}"' }
-    - { option: "private_peer_ids", value: '"{{ private_peer_ids }}"' }
+    - { option: "persistent_peers", value: '"{{ p2p_persistent_peers }}"' }
+    - { option: "private_peer_ids", value: '"{{ p2p_private_peer_ids }}"' }
   notify: Restart cosmovisor
 
 # priv_validator_laddr is a top-level key in config.toml (no section).
@@ -345,6 +348,9 @@
     - { option: "api", value: '"eth,net,web3,txpool{{ ",debug" if evm_tracer_enabled else "" }}"' }
     - { option: "address", value: '"{{ jsonrpc_bind_address }}:{{ jsonrpc_port }}"' }
     - { option: "ws-address", value: '"{{ jsonrpc_bind_address }}:{{ jsonrpc_ws_port }}"' }
+    # cosmos/evm: "SHOULD NOT be used on public tracing nodes" — pinned off
+    # even though it is the default, so a future default flip cannot open it.
+    - { option: "enable-profiling", value: "false" }
   notify: Restart cosmovisor
 
 # app.toml's evm-chain-id is intentionally NOT set here: app/config.ValidateEVMChainID
