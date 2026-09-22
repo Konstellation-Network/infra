@@ -1,6 +1,8 @@
+---
 exclude_paths:
   - collections/ # ansible-galaxy collection installs, local only, never committed
   - inventories/testnet-1/hosts.yml.example
+  - inventories/testnet-1/ssh_config
 
 # var-naming[no-role-prefix] is intentionally not fixed: node/cosmovisor/horcrux/
 # monitoring/firewall roles share one flat variable namespace on purpose (one

@@ -1,33 +1,60 @@
-# Example central Prometheus config for testnet-1, spanning both clouds.
-# Targets are IPs, not hostnames — the monitoring host would need private
-# connectivity into BOTH Hetzner's (10.0.1.0/24) and GCP's (10.0.2.0/24)
-# networks (no terraform module for that host exists yet, see
-# infra/README.md "Known gaps"). Fill these in from terraform output, or
-# template this file the same way ansible/inventories/testnet-1/hosts.yml is
-# generated (see terraform/envs/testnet-1/outputs.tf).
+# Example of what ansible/roles/monitoring_server/templates/prometheus.yml.j2
+# renders on the monitoring host (terraform/modules/<cloud>/monitoring),
+# for the default topology: 10 validators (v1-v5 Hetzner 10.0.1.11-.15,
+# v6-v10 GCP 10.0.2.16-.20), sentries, rpc, archives, both bastions, the
+# cosigners in dedicated mode, tenderduty, and itself. Targets are private
+# IPs from the inventory; the other cloud is reached through the bastions'
+# WireGuard tunnel. Not deployed from here — the template is the source;
+# this file only shows the shape. Abridged: one host per group.
 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    chain_id: testnet-1
 
 rule_files:
-  - alerts.yml
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]
 
 scrape_configs:
-  - job_name: konstellation-chain
+  - job_name: konstellation-validators
     static_configs:
-      - targets:
-          - "10.0.1.11:26660" # testnet-1-hetzner-validator-v1
-          - "10.0.1.12:26660" # testnet-1-hetzner-validator-v2
-          - "10.0.2.14:26660" # testnet-1-gcp-validator-v4
-          - "10.0.2.15:26660" # testnet-1-gcp-validator-v5
-        labels:
-          role: validator
-
+      - targets: ["10.0.1.11:26660"]
+        labels: { instance: testnet-1-hetzner-validator-v1, role: validator, cloud: hetzner }
+      - targets: ["10.0.2.16:26660"]
+        labels: { instance: testnet-1-gcp-validator-v6, role: validator, cloud: gcp }
+  - job_name: konstellation-sentries
+    static_configs:
+      - targets: ["10.0.1.21:26660"]
+        labels: { instance: testnet-1-hetzner-sentry-v1, role: sentry, cloud: hetzner }
+  - job_name: konstellation-rpc
+    static_configs:
+      - targets: ["10.0.2.31:26660"]
+        labels: { instance: testnet-1-gcp-rpc-1, role: rpc, cloud: gcp }
+  - job_name: konstellation-archive
+    static_configs:
+      - targets: ["10.0.1.41:26660"]
+        labels: { instance: testnet-1-hetzner-archive-1, role: archive, cloud: hetzner }
   - job_name: node-exporter
     static_configs:
-      - targets:
-          - "10.0.1.11:9100"
-          - "10.0.1.12:9100"
-          - "10.0.2.14:9100"
-          - "10.0.2.15:9100"
+      - targets: ["10.0.1.11:9100"]
+        labels: { instance: testnet-1-hetzner-validator-v1, role: validator, cloud: hetzner }
+      - targets: ["10.0.1.5:9100"]  # bastions are scraped on their PRIVATE address
+        labels: { instance: testnet-1-hetzner-bastion, role: bastion, cloud: hetzner }
+      - targets: ["127.0.0.1:9100"]
+        labels: { instance: testnet-1-gcp-monitoring-1, role: monitoring }
+  - job_name: tenderduty
+    static_configs:
+      - targets: ["127.0.0.1:28686"]
+        labels: { instance: tenderduty }
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["127.0.0.1:9093"]

@@ -1,7 +1,38 @@
 ---
-node_role: rpc  # overridden per group_vars
-bastion_ipv4: ""
+node_role: rpc  # overridden per group_vars: validator / sentry / rpc / archive / bastion / monitoring / cosigner
+# This cloud's bastion private IP — the only SSH source for every non-bastion
+# host. Per-host, from terraform's inventory output.
+bastion_private_ip: ""
 network_cidr: ""  # per-host, from terraform's inventory output — Hetzner and GCP have separate private networks
+# Both clouds' private networks. Internal-only ports admit the whole fleet
+# because the monitoring host / cosigners may be in the other cloud, reached
+# through the bastions' routed WireGuard tunnel with their real source IP.
+fleet_cidrs: []
+# Archive nodes: who may reach RPC/REST/JSON-RPC — group_vars/archive.yml
+# sets it to the monitoring host + explorer; /24 or narrower, asserted.
+archive_rpc_allowed_cidrs: []
+# Explorer backend only: REST + the debug JSON-RPC. Empty until it exists.
+archive_explorer_cidrs: []
+monitoring_host_private_ip: ""
+horcrux_debug_base_port: 8453
+cloud: ""
 prometheus_port: 26660
 node_exporter_port: 9100
 ssh_port: 22
+
+# horcrux (ansible/roles/horcrux)
+horcrux_mode: colocated
+horcrux_privval_port: 1234
+horcrux_p2p_base_port: 2222
+
+# bastion only (ansible/roles/bastion): operator CIDRs + tunnel
+operator_ssh_cidrs: []
+wireguard_port: 51820
+wireguard_endpoint: ""
+nat_gateway: false
+remote_cidrs: []
+wireguard_cidr: ""
+
+# monitoring host only (ansible/roles/monitoring_server): nothing is opened
+# to the fleet — Grafana/Prometheus/Alertmanager/tenderduty are reached with
+# an SSH port-forward through the bastion (runbooks/on-call.md).

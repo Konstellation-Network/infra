@@ -1,0 +1,42 @@
+---
+# The rendered configs, split out so ansible/tests/render_test.yml imports
+# exactly these tasks. monitoring_render_only (tests only) redirects the
+# destinations, skips ownership/validation and silences the handlers.
+
+- name: Template prometheus.yml (scrape targets from the inventory)
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_config_dir }}/prometheus.yml"
+    owner: "{{ omit if monitoring_render_only else 'prometheus' }}"
+    group: "{{ omit if monitoring_render_only else 'prometheus' }}"
+    mode: "0640"
+    validate: "{{ omit if monitoring_render_only else '/usr/local/bin/promtool check config %s' }}"
+  notify: Reload prometheus
+
+- name: Template alertmanager.yml (placeholder on-call route)
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: "{{ alertmanager_config_dir }}/alertmanager.yml"
+    owner: "{{ omit if monitoring_render_only else 'alertmanager' }}"
+    group: "{{ omit if monitoring_render_only else 'alertmanager' }}"
+    mode: "0600"  # may carry a routing key
+    validate: "{{ omit if monitoring_render_only else '/usr/local/bin/amtool check-config %s' }}"
+  notify: Restart alertmanager
+
+- name: Template tenderduty config
+  ansible.builtin.template:
+    src: tenderduty-config.yml.j2
+    dest: "{{ tenderduty_dir }}/config.yml"
+    owner: "{{ omit if monitoring_render_only else 'tenderduty' }}"
+    group: "{{ omit if monitoring_render_only else 'tenderduty' }}"
+    mode: "0600"  # may carry webhook / API keys
+  notify: Restart tenderduty
+
+- name: Install tenderduty systemd unit (docker run, host network on the private address only)
+  ansible.builtin.template:
+    src: tenderduty.service.j2
+    dest: "{{ tenderduty_unit_path }}"
+    owner: "{{ omit if monitoring_render_only else 'root' }}"
+    group: "{{ omit if monitoring_render_only else 'root' }}"
+    mode: "0644"
+  notify: Restart tenderduty

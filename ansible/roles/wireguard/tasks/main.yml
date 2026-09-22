@@ -1,0 +1,89 @@
+---
+# Kernel WireGuard between the two bastions. Keys are generated ON THE HOST
+# and the private key never leaves it: only the public key is read back
+# (as a fact) to build the peer's config. Nothing key-shaped is stored in
+# this repo, in the inventory, or on the controller.
+#
+# Both bastions must be in the same play (site.yml: hosts: bastions) so
+# hostvars[wireguard_peer].wireguard_public_key is populated when the
+# config is templated.
+
+- name: Fail if tunnel parameters are unset
+  ansible.builtin.assert:
+    that:
+      - wireguard_cidr | length > 0
+      - wireguard_address | length > 0
+      - wireguard_peer | length > 0
+      - wireguard_endpoint | length > 0
+      - network_cidr | length > 0
+      - private_ip | length > 0
+      - remote_cidrs | length > 0
+    fail_msg: "WireGuard tunnel vars must come from terraform's inventory output — refusing to guess."
+
+- name: Install wireguard
+  ansible.builtin.apt:
+    name:
+      - wireguard
+      - wireguard-tools
+    state: present
+    update_cache: true
+
+- name: Create /etc/wireguard
+  ansible.builtin.file:
+    path: /etc/wireguard
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Generate the private key on the host (once)
+  ansible.builtin.shell: |
+    set -o pipefail
+    umask 077 && wg genkey > /etc/wireguard/{{ wireguard_interface }}.key
+  args:
+    executable: /bin/bash
+    creates: "/etc/wireguard/{{ wireguard_interface }}.key"
+
+- name: Derive the public key
+  ansible.builtin.shell: |
+    set -o pipefail
+    wg pubkey < /etc/wireguard/{{ wireguard_interface }}.key
+  args:
+    executable: /bin/bash
+  register: wg_pubkey
+  changed_when: false
+
+- name: Refuse anything that is not a WireGuard public key (it is templated into the PEER's root-owned config)
+  ansible.builtin.assert:
+    that:
+      - wg_pubkey.stdout is match('^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$')
+    fail_msg: "wg pubkey output is not a 32-byte base64 key: {{ wg_pubkey.stdout | truncate(60) }}"
+
+- name: Publish this host's public key as a fact for the peer's template
+  ansible.builtin.set_fact:
+    wireguard_public_key: "{{ wg_pubkey.stdout }}"
+
+- name: Fail if the peer's published key is not a WireGuard public key either
+  ansible.builtin.assert:
+    that:
+      - hostvars[wireguard_peer]['wireguard_public_key'] is defined
+      - hostvars[wireguard_peer]['wireguard_public_key'] is match('^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$')
+    fail_msg: >-
+      {{ wireguard_peer }}'s wireguard_public_key fact is missing or malformed —
+      it would be written into this host's wg0.conf as root. Both bastions must
+      be in the same play (site.yml `hosts: bastions`); do not --limit to one.
+
+- name: Template the interface config (PostUp reads the key file; the key is not in the config)
+  ansible.builtin.template:
+    src: wg.conf.j2
+    dest: "/etc/wireguard/{{ wireguard_interface }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart wireguard
+
+- name: Enable and start the tunnel
+  ansible.builtin.systemd:
+    name: "wg-quick@{{ wireguard_interface }}"
+    enabled: true
+    state: started

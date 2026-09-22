@@ -1,0 +1,66 @@
+# Managed by ansible/roles/monitoring_server. tenderduty v2 config
+# (github.com/blockpane/tenderduty example-config.yml). Chain-level alert
+# channels are PLACEHOLDERS until the on-call rota exists — see
+# alertmanager.yml.j2 and runbooks/on-call.md.
+enable_dashboard: yes
+listen_port: {{ tenderduty_dashboard_port }}
+hide_logs: no
+node_down_alert_minutes: 3
+node_down_alert_severity: critical
+
+prometheus_enabled: yes
+prometheus_listen_port: {{ tenderduty_prometheus_port }}
+
+pagerduty:
+  enabled: {{ 'yes' if alert_pagerduty_routing_key | length > 0 else 'no' }}
+  api_key: "{{ alert_pagerduty_routing_key }}"
+  default_severity: critical
+
+discord:
+  enabled: {{ 'yes' if alert_discord_webhook_url | length > 0 else 'no' }}
+  webhook: "{{ alert_discord_webhook_url }}"
+
+telegram:
+  enabled: {{ 'yes' if alert_telegram_api_key | length > 0 else 'no' }}
+  api_key: "{{ alert_telegram_api_key }}"
+  channel: "{{ alert_telegram_channel }}"
+
+slack:
+  enabled: {{ 'yes' if alert_slack_webhook_url | length > 0 else 'no' }}
+  webhook: "{{ alert_slack_webhook_url }}"
+
+chains:
+{% for v in tenderduty_validators if v.valoper | default('') | length > 0 %}
+  "{{ v.name }}":
+    chain_id: {{ chain_id }}
+    valoper_address: {{ v.valoper }}
+    public_fallback: no
+    alerts:
+      stalled_enabled: yes
+      stalled_minutes: {{ tenderduty_stalled_minutes }}
+      consecutive_enabled: yes
+      consecutive_missed: {{ tenderduty_consecutive_missed }}
+      consecutive_priority: critical
+      percentage_enabled: yes
+      percentage_missed: {{ tenderduty_percentage_missed }}
+      percentage_priority: warning
+      alert_if_inactive: yes
+      alert_if_no_servers: yes
+      pagerduty:
+        enabled: {{ 'yes' if alert_pagerduty_routing_key | length > 0 else 'no' }}
+      discord:
+        enabled: {{ 'yes' if alert_discord_webhook_url | length > 0 else 'no' }}
+      telegram:
+        enabled: {{ 'yes' if alert_telegram_api_key | length > 0 else 'no' }}
+      slack:
+        enabled: {{ 'yes' if alert_slack_webhook_url | length > 0 else 'no' }}
+    nodes:
+{% for url in tenderduty_rpc_nodes %}
+      - url: {{ url }}
+        alert_if_down: yes
+{% endfor %}
+{% else %}
+  # No validators configured yet: fill tenderduty_validators (name + valoper)
+  # once the gentxs exist. tenderduty starts with an empty chain map.
+  {}
+{% endfor %}

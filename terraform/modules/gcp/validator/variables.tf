@@ -22,9 +22,9 @@ variable "local_ssd_count" {
 
     READ THIS: GCP Local SSD is ephemeral across a stop or most host
     maintenance events (it survives a plain reboot, not a stop/terminate or a
-    maintenance event that can't live-migrate — and a VM with Local SSD
-    attached cannot live-migrate, so `scheduling.on_host_maintenance` below is
-    forced to TERMINATE). Losing this disk loses priv_validator_state.json,
+    host error; scheduled maintenance live-migrates the VM *with* the disk,
+    per current GCP docs, so main.tf sets MIGRATE — re-check that on every
+    provider bump). Losing this disk loses priv_validator_state.json,
     and restarting a validator without that file's last-signed-height is
     exactly the double-sign scenario ENGINEERING.md §2.7 calls unrecoverable
     (5% slash). This choice was made explicitly for testnet-1 to match
@@ -69,4 +69,9 @@ variable "tags" {
 variable "labels" {
   type    = map(string)
   default = {}
+}
+
+variable "service_account_email" {
+  description = "Dedicated, scope-less service account the instance runs as (envs/<net>/gcp.tf google_service_account.nodes). Never the default Compute SA."
+  type        = string
 }

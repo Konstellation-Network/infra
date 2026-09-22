@@ -1,5 +1,5 @@
 [Unit]
-Description=Konstellation horcrux threshold cosigner
+Description=Konstellation horcrux threshold cosigner (%i)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,8 @@ Wants=network-online.target
 Type=simple
 User={{ konstellation_user }}
 Group={{ konstellation_group }}
-ExecStart=/usr/local/bin/horcrux cosigner start --home {{ horcrux_home }}
+# v3: `start` is a root command and --home a root flag (v2 had `cosigner start`).
+ExecStart=/usr/local/bin/horcrux --home {{ horcrux_home }}/%i start
 Restart=on-failure
 RestartSec=3
 

@@ -1,0 +1,22 @@
+# Copied from the org `.github` repo's CODEOWNERS.template (GitHub has no
+# org-wide default CODEOWNERS; every repo carries its own — ENGINEERING.md §17).
+#
+# Ownership is shared across engineering, not assigned to individuals
+# (ENGINEERING.md §17), so every path is owned by every current engineer. No
+# GitHub team exists yet; swap this list for a team once one is created.
+# Update the usernames if org membership changes
+# (`gh api orgs/Konstellation-Network/members --jq '.[].login'`).
+
+* @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01
+
+# Mainnet's environment is where a wrong `apply` touches validators holding
+# user funds (ENGINEERING.md §9.2, §18). Same owners, listed separately so a
+# stricter rule (e.g. two reviewers) can be attached here without touching
+# the catch-all above. CODEOWNERS is last-match-wins. The directory does not
+# exist yet (created at the mainnet genesis ceremony, §15 phase 8); the rule
+# is here so it applies from the first commit.
+/terraform/envs/konstellation-1/  @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01
+
+# Runbooks are what the on-call follows at 03:00 (§17); a wrong step here is
+# an incident. Same owners, separate line for the same reason as above.
+/runbooks/  @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01

@@ -2,6 +2,16 @@
 Description=Konstellation cosmovisor
 After=network-online.target
 Wants=network-online.target
+{% if data_volume_device | default('') | length > 0 or local_ssd_count | default(0) | int > 0 %}
+# This host keeps {{ daemon_home }}/data on a separate volume. Never start
+# the node on the bare directory underneath: a GCP host error returns the
+# VM with empty Local SSDs, and a node that starts there has its key and a
+# priv_validator_state.json at height 0 — the §2.7 double-sign path. With
+# these two lines the unit stays inactive (a NodeDown page) until the
+# volume is mounted (ansible/roles/node) instead.
+RequiresMountsFor={{ daemon_home }}/data
+ConditionPathIsMountPoint={{ daemon_home }}/data
+{% endif %}
 
 [Service]
 Type=simple
@@ -19,7 +29,11 @@ Environment=DAEMON_HOME={{ daemon_home }}
 # to prevent (ENGINEERING.md §9.2, §2.6).
 Environment=DAEMON_ALLOW_DOWNLOAD_BINARIES=false
 Environment=DAEMON_RESTART_AFTER_UPGRADE=true
-Environment=UNSAFE_SKIP_BACKUP=false
+# cosmovisor's pre-upgrade backup copies the whole data directory into
+# DAEMON_HOME — the boot disk, next to a multi-TB data volume — so the
+# first upgrade would have filled it (review, 2026-09-21). The rollback
+# path is the H-1 snapshot runbooks/coordinated-upgrade.md prescribes.
+Environment=UNSAFE_SKIP_BACKUP=true
 
 [Install]
 WantedBy=multi-user.target

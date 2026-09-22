@@ -45,8 +45,21 @@
 # --- data volume: a single attached disk (Hetzner/GCP archive nodes) ---
 
 - name: Mount attached data volume, if this host has one
-  when: data_volume_device is defined
+  when: data_volume_device is defined and data_volume_device | length > 0
   block:
+    - name: Read the data volume's existing filesystem type, if any
+      ansible.builtin.command:
+        cmd: blkid -o value -s TYPE {{ data_volume_device }}
+      register: data_volume_fstype
+      changed_when: false
+      failed_when: false  # blkid exits 2 for "no filesystem", which is an answer, not an error
+
+    - name: Refuse to format the data volume under an existing validator key (tasks/data_guard.yml)
+      ansible.builtin.import_tasks: data_guard.yml
+      vars:
+        data_guard_device: "{{ data_volume_device }}"
+        data_guard_intact: "{{ data_volume_fstype.stdout | trim | length > 0 }}"
+
     - name: Format data volume (only if it has no filesystem yet)
       community.general.filesystem:
         fstype: ext4
@@ -73,8 +86,10 @@
 # Local SSDs (375 GiB each — GCP's fixed increment); a single one doesn't
 # meet ENGINEERING.md §9.2's multi-TB spec, so they're striped into one RAID0
 # array. See that module's local_ssd_count variable for the ephemerality /
-# double-sign-risk caveat this depends on — this task block does not mitigate
-# that risk, it only makes the striped capacity usable.
+# double-sign-risk caveat this depends on. tasks/data_guard.yml refuses to
+# recreate the array under an existing validator key; roles/cosmovisor's
+# unit refuses to start on an unmounted data dir. Between them a lost Local
+# SSD is a page, never a node signing from height 0.
 
 - name: Stripe and mount GCP validator Local SSDs, if this host has any
   when: local_ssd_count | default(0) > 0
@@ -96,6 +111,12 @@
       ansible.builtin.stat:
         path: /dev/md0
       register: raid_array
+
+    - name: Refuse to recreate the array under an existing validator key (tasks/data_guard.yml)
+      ansible.builtin.import_tasks: data_guard.yml
+      vars:
+        data_guard_device: /dev/md0
+        data_guard_intact: "{{ raid_array.stat.exists }}"
 
     - name: Create RAID0 array across Local SSDs
       when: not raid_array.stat.exists
@@ -149,14 +170,8 @@
     group: "{{ konstellation_group }}"
     mode: "0755"
 
-- name: Symlink cosmovisor current -> genesis on first install
-  ansible.builtin.file:
-    src: "{{ daemon_home }}/cosmovisor/genesis"
-    dest: "{{ daemon_home }}/cosmovisor/current"
-    state: link
-    owner: "{{ konstellation_user }}"
-    group: "{{ konstellation_group }}"
-    force: false  # never clobber an existing symlink — that's how a running upgrade gets rolled back by accident
+- name: Point cosmovisor current at genesis on first install only (tasks/link.yml)
+  ansible.builtin.import_tasks: link.yml
 
 # --- genesis (idempotent: only runs `init` if config.toml doesn't exist yet) ---
 
@@ -197,6 +212,9 @@
 # template — a from-scratch template here would silently drift from whatever
 # `init` produces and reintroduce the exact class of bug that was removed.
 
+- name: Wire peers from the inventory (tasks/peers.yml)
+  ansible.builtin.import_tasks: peers.yml
+
 - name: Reconcile config.toml [p2p]
   community.general.ini_file:
     path: "{{ daemon_home }}/config/config.toml"
@@ -209,8 +227,40 @@
   loop:
     - { option: "pex", value: "{{ pex | lower }}" }
     - { option: "seeds", value: '"{{ seeds }}"' }
-    - { option: "persistent_peers", value: '"{{ persistent_peers }}"' }
-    - { option: "private_peer_ids", value: '"{{ private_peer_ids }}"' }
+    - { option: "persistent_peers", value: '"{{ p2p_persistent_peers }}"' }
+    - { option: "private_peer_ids", value: '"{{ p2p_private_peer_ids }}"' }
+  notify: Restart cosmovisor
+
+# priv_validator_laddr is a top-level key in config.toml (no section).
+# Colocated horcrux talks over loopback; dedicated cosigners dial the
+# private IP (cloud firewall + ufw admit only the cosigner IPs on 1234).
+- name: Reconcile config.toml priv_validator_laddr (horcrux remote signer) — validators
+  when: node_role == 'validator'
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/config.toml"
+    section: null
+    option: priv_validator_laddr
+    value: '"{{ ("tcp://" ~ ("127.0.0.1" if horcrux_mode == "colocated" else ansible_host) ~ ":" ~ horcrux_privval_port) if horcrux_enabled else "" }}"'
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  notify: Restart cosmovisor
+
+# CometBFT RPC: init writes tcp://127.0.0.1:26657. Validators keep that;
+# sentries/rpc/archive bind 0.0.0.0 so tenderduty (monitoring host), the
+# public RPC and Blockscout can reach them — reachability is then the cloud
+# firewall + ufw (26657 on sentries: monitoring host only). Found in review:
+# tenderduty had nothing to talk to and the "public RPC node" served only
+# JSON-RPC.
+- name: Reconcile config.toml [rpc] laddr
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/config.toml"
+    section: rpc
+    option: laddr
+    value: '"tcp://{{ rpc_bind_address }}:26657"'
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
   notify: Restart cosmovisor
 
 - name: Reconcile config.toml [instrumentation]
@@ -254,6 +304,35 @@
   when: pruning != "default"
   notify: Restart cosmovisor
 
+- name: Reconcile app.toml [api] (REST on 1317 — rpc and archive nodes only)
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/app.toml"
+    section: api
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  loop:
+    - { option: "enable", value: "{{ api_enabled | lower }}" }
+    - { option: "address", value: '"tcp://{{ rpc_bind_address }}:1317"' }
+  notify: Restart cosmovisor
+
+# Node-local mempool floor, not a protocol parameter (TOKENOMICS.md §3: no
+# protocol floor, base fee may decay to 0). init writes 0esp; the public
+# RPC node sets a floor in group_vars/rpc.yml so its open mempool is not a
+# free spam target.
+- name: Reconcile app.toml minimum-gas-prices
+  community.general.ini_file:
+    path: "{{ daemon_home }}/config/app.toml"
+    section: null
+    option: minimum-gas-prices
+    value: '"{{ minimum_gas_prices }}"'
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"
+    mode: "0644"
+  notify: Restart cosmovisor
+
 - name: Reconcile app.toml [json-rpc]
   when: jsonrpc_enabled
   community.general.ini_file:
@@ -267,6 +346,11 @@
   loop:
     - { option: "enable", value: "true" }
     - { option: "api", value: '"eth,net,web3,txpool{{ ",debug" if evm_tracer_enabled else "" }}"' }
+    - { option: "address", value: '"{{ jsonrpc_bind_address }}:{{ jsonrpc_port }}"' }
+    - { option: "ws-address", value: '"{{ jsonrpc_bind_address }}:{{ jsonrpc_ws_port }}"' }
+    # cosmos/evm: "SHOULD NOT be used on public tracing nodes" — pinned off
+    # even though it is the default, so a future default flip cannot open it.
+    - { option: "enable-profiling", value: "false" }
   notify: Restart cosmovisor
 
 # app.toml's evm-chain-id is intentionally NOT set here: app/config.ValidateEVMChainID

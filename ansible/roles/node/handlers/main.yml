@@ -3,9 +3,12 @@
   ansible.builtin.systemd:
     name: cosmovisor.service
     state: restarted
+  register: cosmovisor_restart
   # Cosmovisor may not be installed yet on a first-ever run (node role runs
-  # before cosmovisor role in site.yml); ignore that specific case, not all errors.
-  failed_when: false
+  # before cosmovisor role in site.yml); ignore that one case, not all errors.
+  failed_when: >-
+    cosmovisor_restart.failed | default(false)
+    and 'Could not find the requested service' not in (cosmovisor_restart.msg | default(''))
 
 - name: Rebuild initramfs
   ansible.builtin.command: update-initramfs -u

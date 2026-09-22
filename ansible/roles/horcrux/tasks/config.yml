@@ -1,0 +1,36 @@
+---
+# Per-instance homes, config.yaml and the horcrux@ unit. horcrux_render_only
+# (ansible/tests/render_test.yml) redirects the unit and skips ownership;
+# never set on a real host.
+
+- name: Create per-instance homes (key material directories — no group/other access, ever)
+  ansible.builtin.file:
+    path: "{{ horcrux_home }}/{{ item.name }}"
+    state: directory
+    owner: "{{ omit if horcrux_render_only else konstellation_user }}"
+    group: "{{ omit if horcrux_render_only else konstellation_group }}"
+    mode: "0700"
+  loop: "{{ horcrux_instances }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Template each instance's config.yaml (topology only, no keys)
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ horcrux_home }}/{{ item.name }}/config.yaml"
+    owner: "{{ omit if horcrux_render_only else konstellation_user }}"
+    group: "{{ omit if horcrux_render_only else konstellation_group }}"
+    mode: "0600"
+  loop: "{{ horcrux_instances }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    instance: "{{ item }}"
+
+- name: Install the horcrux@ systemd template unit (instances stay disabled until keys are placed by hand)
+  ansible.builtin.template:
+    src: horcrux@.service.j2
+    dest: "{{ horcrux_unit_path }}"
+    owner: "{{ omit if horcrux_render_only else 'root' }}"
+    group: "{{ omit if horcrux_render_only else 'root' }}"
+    mode: "0644"

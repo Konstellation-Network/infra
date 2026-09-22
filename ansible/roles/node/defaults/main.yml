@@ -18,9 +18,15 @@ genesis_url: ""
 genesis_sha256: ""
 
 pex: true
+# Manual overrides only; tasks/peers.yml computes both from the inventory
+# when these are empty.
 persistent_peers: ""
 private_peer_ids: ""
 seeds: ""
+node_role: rpc
+cloud: ""
+# tests only: skip the show-node-id command
+node_render_only: false
 
 pruning: default
 pruning_keep_recent: "0"
@@ -34,5 +40,37 @@ public_ip: true
 
 jsonrpc_enabled: false
 evm_tracer_enabled: false
+# Where the EVM JSON-RPC (8545) and WebSocket (8546) servers bind.
+# `konstellationd init` writes 127.0.0.1, which is right for a validator
+# and wrong for anything another host must reach: the rpc node binds
+# 0.0.0.0 (public, group_vars/rpc.yml) and the archive node binds its
+# private-network address (group_vars/archive.yml) so the explorer's
+# Blockscout stack can reach debug_traceTransaction — found live by the
+# explorer deployment, 2026-09-20. ws-origins is left as init wrote it.
+jsonrpc_bind_address: "127.0.0.1"
+# CometBFT RPC (26657) and REST API (1317) bind; see the [rpc] task in
+# tasks/main.yml. 127.0.0.1 on validators, 0.0.0.0 elsewhere (firewalled).
+rpc_bind_address: "127.0.0.1"
+api_enabled: false
+# app.toml minimum-gas-prices, node-local. init writes 0esp (TOKENOMICS.md
+# §3); the public rpc group overrides.
+minimum_gas_prices: "0esp"
+jsonrpc_port: 8545
+jsonrpc_ws_port: 8546
 
 local_ssd_count: 0
+# Set -e allow_data_rebuild=true ONLY after runbooks/validator-key-rotation.md
+# §B: lets tasks/data_guard.yml (re)build a data volume under an existing
+# validator key.
+allow_data_rebuild: false
+
+# Horcrux remote signing (validators only; ansible/roles/horcrux). false =
+# the node signs with its own priv_validator_key.json. true = config.toml
+# priv_validator_laddr is set and the node WAITS for a cosigner to connect
+# before it will sign — flip per validator only after the key ceremony
+# (runbooks/validator-key-rotation.md). ENGINEERING.md §2.7: the local
+# priv_validator_key.json must be gone from the host before a remote signer
+# for the same key is live.
+horcrux_enabled: false
+horcrux_mode: colocated
+horcrux_privval_port: 1234

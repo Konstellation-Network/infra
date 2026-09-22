@@ -1,0 +1,18 @@
+[Unit]
+Description=Alertmanager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alertmanager
+Group=alertmanager
+ExecStart=/usr/local/bin/alertmanager \
+  --config.file=/etc/alertmanager/alertmanager.yml \
+  --storage.path={{ monitoring_data_dir }}/alertmanager \
+  --web.listen-address=127.0.0.1:{{ alertmanager_port }}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

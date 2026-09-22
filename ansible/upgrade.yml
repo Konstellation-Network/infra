@@ -20,7 +20,7 @@
 #     -e binary_sha256=<sha256 from networks/testnet-1/upgrades/v2-*.md>
 
 - name: Stage upgrade binary across the fleet
-  hosts: all
+  hosts: chain_nodes # validators, sentries, rpc, archive — not bastions/monitoring/cosigners
   become: true
   become_user: "{{ konstellation_user | default('konstellation') }}"
   vars:

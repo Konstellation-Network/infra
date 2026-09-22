@@ -1,5 +1,6 @@
 ---
 - name: Reload systemd and restart cosmovisor
+  when: not (cosmovisor_render_only | default(false) | bool)
   ansible.builtin.systemd:
     daemon_reload: true
     name: cosmovisor.service

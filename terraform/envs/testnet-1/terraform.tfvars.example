@@ -4,10 +4,26 @@
 # or GOOGLE_APPLICATION_CREDENTIALS pointing at a service account key file.
 
 ssh_public_key = "ssh-ed25519 AAAA... deploy@bootstrap"
-bastion_ipv4   = "203.0.113.10/32"
+# A DIFFERENT key for the Horcrux cosigner hosts (dedicated mode only; validated
+# to differ from ssh_public_key). Who holds it is STATUS §5a P21.
+# cosigner_ssh_public_key = "ssh-ed25519 AAAA... cosigner-admin@hsm"
+
+# Operator workstations / VPN egress allowed to SSH to the bastion(s). One /32
+# per person. Never 0.0.0.0/0 (validated).
+operator_ssh_cidrs = ["203.0.113.10/32"]
+
+# Topology decisions — defaults documented in variables.tf and README.md.
+# bastion_ssh_entry = "per-cloud"   # or "hetzner" / "gcp": one internet-facing sshd
+# monitoring_cloud  = "gcp"
+# horcrux_mode      = "colocated"   # "dedicated" provisions cosigner_placement
+# cosigner_placement = [
+#   { cloud = "hetzner", location = "fsn1" },
+#   { cloud = "gcp", zone = "us-central1-b" },
+#   { cloud = "hetzner", location = "hel1" },
+# ]
 
 hetzner_ssh_key_ids = ["your-hcloud-ssh-key-id"]
-hetzner_locations   = ["fsn1", "hel1", "ash"]
+hetzner_locations   = ["fsn1", "hel1", "nbg1"] # all in the subnet's network zone (eu-central); validated
 
 gcp_project = "your-gcp-project-id"
 gcp_region  = "us-central1"

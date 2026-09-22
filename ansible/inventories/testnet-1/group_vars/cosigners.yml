@@ -1,0 +1,5 @@
+---
+node_role: cosigner
+# shard_id is per-host from terraform's inventory output; horcrux_mode is a
+# fleet-wide var there too. Only populated when terraform's horcrux_mode is
+# "dedicated" (testnet-1 default: colocated, so this group is empty).

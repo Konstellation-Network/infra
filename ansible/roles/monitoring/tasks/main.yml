@@ -17,16 +17,39 @@
     shell: /usr/sbin/nologin
     create_home: false
 
+- name: Root-owned download cache (never /tmp — a pre-existing file there could be swapped between download and extract)
+  ansible.builtin.file:
+    path: /var/cache/konstellation
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
 - name: Download node_exporter, verify sha256
   ansible.builtin.get_url:
     url: "{{ node_exporter_release_url }}"
-    dest: /tmp/node_exporter.tar.gz
+    dest: /var/cache/konstellation/node_exporter.tar.gz
+    force: true  # always re-fetch into the root-only cache; the checksum below is what gates extraction
+    owner: root
+    group: root
     checksum: "sha256:{{ node_exporter_sha256 }}"
     mode: "0644"
 
+- name: Re-verify the cached tarball immediately before extracting as root
+  ansible.builtin.stat:
+    path: /var/cache/konstellation/node_exporter.tar.gz
+    checksum_algorithm: sha256
+  register: node_exporter_tarball
+
+- name: Fail if the tarball changed between download and extract
+  ansible.builtin.assert:
+    that:
+      - node_exporter_tarball.stat.checksum == node_exporter_sha256
+    fail_msg: "node_exporter tarball checksum mismatch at extract time — refusing."
+
 - name: Extract node_exporter binary
   ansible.builtin.unarchive:
-    src: /tmp/node_exporter.tar.gz
+    src: /var/cache/konstellation/node_exporter.tar.gz
     dest: /usr/local/bin
     remote_src: true
     extra_opts:

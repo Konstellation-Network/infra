@@ -5,3 +5,12 @@ daemon_name: konstellationd
 daemon_home: /home/konstellation/.konstellationd
 cosmovisor_version: "v1.7.0"
 cosmovisor_sha256: ""
+# Asset name checked against the GitHub release (gh api, 2026-09-21):
+# cosmovisor-v1.7.0-linux-amd64.tar.gz, containing a bare `cosmovisor`.
+cosmovisor_release_url: "https://github.com/cosmos/cosmos-sdk/releases/download/cosmovisor%2F{{ cosmovisor_version }}/cosmovisor-{{ cosmovisor_version }}-linux-amd64.tar.gz"
+data_volume_device: ""
+local_ssd_count: 0
+cosmovisor_unit_path: /etc/systemd/system/cosmovisor.service
+# ansible/tests/render_test.yml only: render the unit somewhere else and do
+# not touch systemd. Never set on a real host.
+cosmovisor_render_only: false

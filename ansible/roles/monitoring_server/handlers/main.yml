@@ -1,0 +1,31 @@
+---
+- name: Restart prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    state: restarted
+    daemon_reload: true
+
+- name: Reload prometheus
+  when: not (monitoring_render_only | default(false) | bool)
+  ansible.builtin.systemd:
+    name: prometheus
+    state: reloaded
+
+- name: Restart alertmanager
+  when: not (monitoring_render_only | default(false) | bool)
+  ansible.builtin.systemd:
+    name: alertmanager
+    state: restarted
+    daemon_reload: true
+
+- name: Restart grafana
+  ansible.builtin.systemd:
+    name: grafana-server
+    state: restarted
+
+- name: Restart tenderduty
+  when: not (monitoring_render_only | default(false) | bool)
+  ansible.builtin.systemd:
+    name: tenderduty
+    state: restarted
+    daemon_reload: true

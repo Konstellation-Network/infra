@@ -1,0 +1,93 @@
+---
+# Hardened jump host. sshd is the only userland listener; WireGuard
+# (roles/wireguard) and NAT forwarding are kernel-side. Nothing else gets
+# installed here — not a node, not an exporter beyond node_exporter, no
+# docker, no web UI.
+
+- name: Install fail2ban and unattended-upgrades (cloud-init does too; idempotent)
+  ansible.builtin.apt:
+    name:
+      - fail2ban
+      - unattended-upgrades
+    state: present
+    update_cache: true
+
+- name: Harden sshd
+  ansible.builtin.template:
+    src: sshd_hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-konstellation-bastion.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "sshd -t -f %s"
+  notify: Restart sshd
+
+- name: Remove any password for the operator user (belt and braces; cloud-init already sets none)
+  ansible.builtin.user:
+    name: "{{ ssh_user }}"
+    password_lock: true
+
+- name: Configure the fail2ban sshd jail
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Enable fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    enabled: true
+    state: started
+
+# --- router ---
+
+- name: Enable IPv4 forwarding (tunnel routing, and NAT on Hetzner)
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-konstellation-bastion.conf
+    reload: true
+
+- name: Detect the public interface from the default route
+  when: public_interface | length == 0
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip -o route show default | awk '{print $5}' | head -n1
+  args:
+    executable: /bin/bash
+  register: default_iface
+  changed_when: false
+
+- name: Set public_interface fact
+  ansible.builtin.set_fact:
+    bastion_public_interface: "{{ public_interface if public_interface | length > 0 else default_iface.stdout }}"
+
+- name: Fail if the public interface could not be determined
+  ansible.builtin.assert:
+    that:
+      - bastion_public_interface | length > 0
+    fail_msg: "Could not determine the public interface; set public_interface explicitly."
+
+# DEFAULT_FORWARD_POLICY stays DROP (Debian default): the `ufw route allow`
+# rules in roles/firewall are the whole forwarding policy. ACCEPT here would
+# make them dead code and forward anything (review, 2026-09-21).
+
+# Hetzner: the private network's 0.0.0.0/0 route points here
+# (hcloud_network_route in the bastion module). Masquerade what comes in
+# from the private network and leaves via the public interface. ufw owns
+# the nat table through before.rules, so the rule lives there.
+- name: Masquerade the private network out of the public interface (NAT gateway)
+  when: nat_gateway | bool
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/before.rules
+    insertbefore: '^\*filter'
+    marker: "# {mark} ANSIBLE MANAGED — konstellation NAT gateway"
+    block: |
+      *nat
+      :POSTROUTING ACCEPT [0:0]
+      -A POSTROUTING -s {{ network_cidr }} -o {{ bastion_public_interface }} -j MASQUERADE
+      COMMIT
+  notify: Reload ufw

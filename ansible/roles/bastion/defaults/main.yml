@@ -1,0 +1,20 @@
+---
+# See terraform/modules/hetzner/bastion for what a bastion is and isn't.
+ssh_port: 22
+ssh_user: deploy
+# true = operators SSH in from the internet (operator_ssh_cidrs); false = this
+# bastion is only a tunnel endpoint/router and is itself reached through
+# the other bastion. From terraform's inventory (var.bastion_ssh_entry).
+ssh_entry: true
+operator_ssh_cidrs: []
+
+# Hetzner only: forward + masquerade the private network to the internet.
+nat_gateway: false
+network_cidr: ""
+# Interface with the public IP (Hetzner cloud Debian 12: eth0; GCP: ens4).
+# Auto-detected from the default route when empty.
+public_interface: ""
+
+fail2ban_bantime: 1h
+fail2ban_findtime: 10m
+fail2ban_maxretry: 3

@@ -1,0 +1,12 @@
+---
+# Site-to-site tunnel between the two clouds' bastions. All values come from
+# terraform's inventory output (hosts.yml, group bastions).
+wireguard_interface: wg0
+wireguard_port: 51820
+wireguard_cidr: ""      # e.g. 10.0.9.0/24
+wireguard_address: ""   # this end, e.g. 10.0.9.1
+wireguard_peer: ""      # inventory hostname of the other bastion
+wireguard_endpoint: ""  # the other bastion's public IP
+remote_cidrs: []        # the other cloud's private network(s), routed via the tunnel
+network_cidr: ""        # this cloud's private network, advertised to the peer
+private_ip: ""          # this bastion's private-network address: the source for traffic it originates across the tunnel

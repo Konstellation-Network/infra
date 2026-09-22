@@ -1,0 +1,20 @@
+---
+# `file: state=link force=false` is NOT a guard: force only governs replacing
+# a regular file, and an existing symlink with another target is re-pointed
+# every run — i.e. every site.yml after an upgrade would have rolled
+# `current` back to genesis (found in review, 2026-09-21). Hence the stat.
+# Split out so ansible/tests/render_test.yml imports these exact tasks.
+
+- name: Check whether cosmovisor current already points somewhere
+  ansible.builtin.stat:
+    path: "{{ daemon_home }}/cosmovisor/current"
+  register: cosmovisor_current_link
+
+- name: Symlink cosmovisor current -> genesis on first install only
+  when: not cosmovisor_current_link.stat.exists
+  ansible.builtin.file:
+    src: "{{ daemon_home }}/cosmovisor/genesis"
+    dest: "{{ daemon_home }}/cosmovisor/current"
+    state: link
+    owner: "{{ konstellation_user }}"
+    group: "{{ konstellation_group }}"

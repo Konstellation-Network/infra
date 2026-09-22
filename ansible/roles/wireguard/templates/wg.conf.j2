@@ -1,0 +1,29 @@
+# Managed by ansible/roles/wireguard. Site-to-site: this cloud's private
+# network <-> {{ wireguard_peer }}'s. The private key lives only in
+# {{ wireguard_interface }}.key on this host (loaded by PostUp).
+[Interface]
+Address = {{ wireguard_address }}/{{ wireguard_cidr.split('/')[1] }}
+ListenPort = {{ wireguard_port }}
+PostUp = wg set %i private-key /etc/wireguard/{{ wireguard_interface }}.key
+# Routes are ours, not wg-quick's: traffic this bastion ORIGINATES to the
+# far cloud (SSH in the single-entry topology, ansible to the other
+# bastion) must carry the private-network address as source, not
+# 10.0.9.x — every firewall on the far side admits private IPs only.
+# `replace` keeps this idempotent if Hetzner's DHCP has already pushed the
+# network route (verify on first apply, README "not verified").
+Table = off
+{% for cidr in remote_cidrs %}
+PostUp = ip route replace {{ cidr }} dev %i src {{ private_ip }}
+{% endfor %}
+PostUp = ip route replace {{ hostvars[wireguard_peer]['wireguard_address'] }}/32 dev %i src {{ wireguard_address }}
+{% for cidr in remote_cidrs %}
+PostDown = ip route del {{ cidr }} dev %i || true
+{% endfor %}
+PostDown = ip route del {{ hostvars[wireguard_peer]['wireguard_address'] }}/32 dev %i || true
+
+[Peer]
+# {{ wireguard_peer }}
+PublicKey = {{ hostvars[wireguard_peer]['wireguard_public_key'] }}
+Endpoint = {{ wireguard_endpoint }}:{{ hostvars[wireguard_peer]['wireguard_port'] | default(wireguard_port) }}
+AllowedIPs = {{ hostvars[wireguard_peer]['wireguard_address'] }}/32, {{ remote_cidrs | join(', ') }}
+PersistentKeepalive = 25
