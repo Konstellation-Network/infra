@@ -13,13 +13,18 @@
 #   ansible-playbook site.yml --limit validators     # one group at a time is safer
 #   ansible-playbook site.yml                        # whole fleet
 
-- name: Configure bastions (jump hosts, NAT egress, cross-cloud tunnel)
+- name: Configure bastions (jump hosts, NAT egress, cross-cloud tunnel where there are two clouds)
   hosts: bastions
   become: true
   roles:
     - firewall
     - bastion
-    - wireguard  # both bastions must be in the play: they exchange public keys as facts
+    # both bastions must be in the play: they exchange public keys as facts.
+    # Single-cloud networks (devnet-1) have one bastion and no tunnel; their
+    # inventory sets cross_cloud_tunnel: false. Absent = true, so a two-cloud
+    # inventory that forgets it still fails closed in the role's asserts.
+    - role: wireguard
+      when: cross_cloud_tunnel | default(true) | bool
     - monitoring # node_exporter
 
 - name: Configure all chain nodes (validators, sentries, rpc, archive)
@@ -31,6 +36,9 @@
     - cosmovisor
     - monitoring
 
+# horcrux_mode (terraform's inventory output): colocated | dedicated run one
+# of the two plays below; none (devnet-1: one validator, its own
+# priv_validator_key.json) runs neither.
 - name: Configure horcrux cosigners — colocated mode, on the validator hosts
   hosts: validators
   become: true

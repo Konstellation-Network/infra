@@ -107,6 +107,13 @@ Symptom: tenderduty pages missed blocks; the host is unreachable.
   **higher** than anything the old host could have signed (the current
   chain height + a margin is safe: the node will simply wait). Losing a few
   blocks is the cost of certainty.
+- **devnet-1 (one validator, local key — D18, 2026-09-29):** the "+ a
+  margin, the node will simply wait" step above **deadlocks** a
+  one-validator chain: no one else advances the height. Move the key *and*
+  its state file together from the old disk (after the same proof the old
+  server is deleted). If the state file died with the host there is no
+  rehearsed answer yet — stop and escalate (re-genesis vs. a deliberate
+  one-off; `infra/README.md` "devnet-1"), do not improvise.
 
 GCP validators on Local SSD (`terraform/modules/gcp/validator`,
 `infra/README.md`) lose their disk — key *and* state — on a host

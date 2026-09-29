@@ -1,0 +1,124 @@
+---
+# Rendered-template tests for the single-cloud, single-validator devnet-1
+# shape (D18, 2026-09-29). Same rules as render_test.yml: controller only,
+# no host touched, the roles' own task files imported. The fixture IS the
+# shipped example — tests/devnet_inventory/hosts.yml and group_vars are
+# symlinks to inventories/devnet-1/{hosts.yml.example,group_vars} — so drift
+# in either fails here. Run:
+#
+#   ansible-playbook -i tests/devnet_inventory/hosts.yml tests/devnet_render_test.yml
+#
+# MUTATION SET — each must make this suite FAIL (verified 2026-09-29):
+#   1. site.yml: drop the `when: cross_cloud_tunnel …` on roles/wireguard
+#                                                        -> "Devnet-1 — site.yml shape" fails
+#   2. roles/node/tasks/main.yml: delete the horcrux_mode assert
+#                                                        -> "Devnet-1 — no remote signer" fails
+#   3. roles/node/tasks/peers.yml: make validators peer with the rpc node
+#      or sentries stop listing the validator in private_peer_ids
+#                                                        -> "Devnet-1 — peer wiring" fails
+
+- name: Devnet-1 — inventory shape
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Assert one validator, no cosigners, no tunnel, the devnet ids
+      ansible.builtin.assert:
+        that:
+          - groups['validators'] | length == 1
+          - groups['cosigners'] | default([]) | length == 0
+          - groups['bastions'] | length == 1
+          - groups['sentries'] | length >= 1
+          - groups['rpc'] | length == 1
+          - groups['archive'] | length == 1
+          - hostvars[groups['validators'][0]]['horcrux_mode'] == 'none'
+          - not (hostvars[groups['validators'][0]]['horcrux_enabled'] | bool)
+          - not (hostvars[groups['bastions'][0]]['cross_cloud_tunnel'] | bool)
+          - hostvars[groups['bastions'][0]]['remote_cidrs'] | length == 0
+          - hostvars[groups['validators'][0]]['chain_id'] == 'devnet-1'
+          - hostvars[groups['validators'][0]]['evm_chain_id'] | int == 56672
+
+- name: Devnet-1 — site.yml shape
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Read site.yml
+      ansible.builtin.set_fact:
+        site: "{{ lookup('file', playbook_dir ~ '/../site.yml') | from_yaml }}"
+
+    - name: Assert the tunnel role is conditional and every horcrux play is gated on colocated/dedicated
+      ansible.builtin.assert:
+        that:
+          - wg_role | length == 1
+          - wg_role[0].when is search('cross_cloud_tunnel')
+          - horcrux_roles | length == 2
+          - horcrux_roles | map(attribute='when') | select('search', "horcrux_mode == '(colocated|dedicated)'") | list | length == 2
+      vars:
+        wg_role: >-
+          {{ (site | selectattr('hosts', '==', 'bastions') | first).roles
+             | select('mapping') | selectattr('role', '==', 'wireguard') | list }}
+        horcrux_roles: >-
+          {{ site | map(attribute='roles') | flatten | select('mapping')
+             | selectattr('role', '==', 'horcrux') | list }}
+
+- name: Devnet-1 — no remote signer
+  hosts: validators
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    # The horcrux assert is the FIRST task of roles/node/tasks/main.yml, and
+    # konstellationd_version is empty in the devnet group_vars, so if the
+    # assert were missing the next task (the version-pin assert) fails
+    # instead — nothing past the asserts ever runs on the controller.
+    - name: A validator told to wait for Horcrux on a network without it must be refused
+      block:
+        - name: Run the role's tasks with horcrux_enabled forced on
+          ansible.builtin.import_role:
+            name: node
+            tasks_from: main.yml
+          vars:
+            horcrux_enabled: true
+      rescue:
+        - name: Record which assert fired
+          ansible.builtin.set_fact:
+            refused_msg: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: Assert it was the horcrux_mode assert, not something else
+      ansible.builtin.assert:
+        that:
+          - refused_msg is defined
+          - refused_msg is search('horcrux_mode=none')
+        fail_msg: "roles/node let horcrux_enabled=true through with horcrux_mode=none (got: {{ refused_msg | default('no failure') }})"
+
+- name: Devnet-1 — peer wiring
+  hosts: chain_nodes
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    node_render_only: true
+    node_id: "{{ inventory_hostname | hash('sha1') | truncate(40, true, '') }}"
+  tasks:
+    - name: Compute peers through the role's tasks
+      ansible.builtin.import_role:
+        name: node
+        tasks_from: peers.yml
+
+    - name: Assert the validator peers with every sentry on its private IP
+      when: node_role == 'validator'
+      ansible.builtin.assert:
+        that:
+          - p2p_persistent_peers | split(',') | length == groups['sentries'] | length
+          - "p2p_persistent_peers is search(hostvars[groups['sentries'][0]]['node_id'] ~ '@' ~ hostvars[groups['sentries'][0]]['ansible_host'] ~ ':26656')"
+          - p2p_persistent_peers is not search(hostvars[groups['rpc'][0]]['ansible_host'])
+
+    - name: Assert sentries hide the validator and cross-peer only when there is another sentry
+      when: node_role == 'sentry'
+      ansible.builtin.assert:
+        that:
+          - p2p_private_peer_ids == hostvars[groups['validators'][0]]['node_id']
+          - (p2p_persistent_peers | length == 0) == (groups['sentries'] | length == 1)

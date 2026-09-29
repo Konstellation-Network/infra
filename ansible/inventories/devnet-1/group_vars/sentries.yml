@@ -1,0 +1,19 @@
+---
+node_role: sentry
+
+pex: true
+# private_peer_ids (the validator's node id, never gossiped) and
+# persistent_peers (every other sentry — none with the default single
+# sentry) are computed by roles/node/tasks/peers.yml; set here/in host_vars
+# only to override.
+private_peer_ids: ""
+persistent_peers: ""
+
+pruning: custom
+pruning_keep_recent: "100"
+pruning_interval: "10"
+
+public_ip: true
+# CometBFT RPC bound on all interfaces so tenderduty (monitoring host) can
+# query it; the cloud firewall + ufw admit 26657 from the monitoring host only.
+rpc_bind_address: "0.0.0.0"

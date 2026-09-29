@@ -194,7 +194,7 @@
 
 # --- roles/cosmovisor tasks/unit.yml: mount guard exactly where data is on a volume (H6) ---
 - name: Cosmovisor unit — mount guard
-  hosts: testnet-1-gcp-validator-v6:testnet-1-hetzner-validator-v1:testnet-1-hetzner-archive-1
+  hosts: testnet-1-gcp-validator-v3:testnet-1-hetzner-validator-v1:testnet-1-hetzner-archive-1
   connection: local
   gather_facts: false
   become: false
@@ -226,7 +226,7 @@
     - name: Assert the fixture really exercises both branches (one host with, one without)
       ansible.builtin.assert:
         that:
-          - hostvars['testnet-1-gcp-validator-v6']['local_ssd_count'] | int > 0
+          - hostvars['testnet-1-gcp-validator-v3']['local_ssd_count'] | int > 0
           - hostvars['testnet-1-hetzner-validator-v1']['local_ssd_count'] is not defined
           - hostvars['testnet-1-hetzner-archive-1']['data_volume_device'] | length > 0
 

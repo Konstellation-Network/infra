@@ -117,9 +117,10 @@ is fixed.
 What the window exposes, and why it is acceptable (D16): anyone watching
 the mempool could slip their own `MsgCreateValidator` into the same
 blocks. A validator created that way **does enter the active set** —
-`max_validators` is 30 (D10) and only 10 seats are taken, so any bonded
-validator is in the set; what its stake decides is its *voting power*,
-which next to ten foundation-scale validators is negligible, and it can
+`max_validators` is 30 (D10) and only 4 seats are taken (D7, 2026-09-29),
+so any bonded validator is in the set; what its stake decides is its
+*voting power*, which next to four foundation-scale validators is
+negligible, and it can
 be jailed for downtime like any other. It cannot be un-created — if one
 appears, it is a validator like any other, and its existence goes in the
 write-up. If this ever becomes a real problem, the

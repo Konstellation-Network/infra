@@ -1,4 +1,5 @@
-# Hetzner's share of testnet-1: 5 validators, 5 sentries (1:1), 1 archive,
+# Hetzner's share of testnet-1: var.hetzner_validator_count validators (2 by
+# default, in two different locations), as many sentries (1:1), 1 archive,
 # the Hetzner bastion/gateway, and — depending on var.monitoring_cloud /
 # var.horcrux_mode — the monitoring host and/or some cosigners. See gcp.tf
 # for the other half and README.md for why the fleet is split this way and
@@ -205,21 +206,24 @@ resource "hcloud_firewall" "internal" {
 }
 
 locals {
-  # 10 foundation-run validators fleet-wide (ENGINEERING.md D7, re-decided
-  # 2026-09-20): v1-v5 here, v6-v10 on GCP.
-  hetzner_validator_names = ["v1", "v2", "v3", "v4", "v5"]
+  # 4 foundation-run validators fleet-wide (D7 re-decided 2026-09-29: was
+  # 10 = 5 + 5). Per-provider counts are variables because WHICH four
+  # failure domains mainnet uses is still open; default 2 here (v1 fsn1,
+  # v2 hel1 — hetzner_locations[i % n]) + 2 on GCP. outputs.tf
+  # validator_placement_warning says when one provider can halt the chain.
+  hetzner_validator_names = [for i in range(var.hetzner_validator_count) : "v${i + 1}"]
 
   hetzner_validators = {
     for i, n in local.hetzner_validator_names : n => {
       location   = element(var.hetzner_locations, i % length(var.hetzner_locations))
-      private_ip = cidrhost(var.hetzner_network_ip_range, 10 + i + 1) # .11-.15
+      private_ip = cidrhost(var.hetzner_network_ip_range, 10 + i + 1) # .11-.15 slots (count <= 5)
     }
   }
 
   hetzner_sentries = {
     for i, n in local.hetzner_validator_names : n => {
       location   = element(var.hetzner_locations, i % length(var.hetzner_locations))
-      private_ip = cidrhost(var.hetzner_network_ip_range, 20 + i + 1) # .21-.25
+      private_ip = cidrhost(var.hetzner_network_ip_range, 20 + i + 1) # .21-.25 slots
     }
   }
 

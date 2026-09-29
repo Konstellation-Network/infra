@@ -181,7 +181,11 @@ Times are targets from `ENGINEERING.md §4.2`.
 - [ ] Time every step against the table in `on-call.md`.
 - [ ] Use a real patched build (`v<x>-rc1`, `RELEASING.md` pre-release), not a no-op.
 - [ ] Exercise both the breaker and `halt-height`, and at least once the unplanned stop + `rollback` path.
-- [ ] The §15 chaos test is a separate drill: kill 40 % of validators mid-block — 4 of the 10 (two per cloud, so neither cloud loses all its sentries) — and confirm the chain **halts** (60 % of voting power is below the ⅔ needed), then that restarting the four resumes without a double-sign. The halt is the expected result; the restart is what is being rehearsed.
+- [ ] The §15 chaos test is a separate drill, on testnet-1 (4 equal-power validators, D7 re-decided 2026-09-29 — 40 % is not a whole number of validators any more, so it is two steps with opposite expected results):
+  1. **Kill 1 of 4 (25 %) mid-block → the chain must stay live.** 75 % of voting power is above the ⅔ CometBFT needs; blocks keep coming, the killed validator only misses blocks (tenderduty/`ValidatorMissingBlocks` should page). A halt here is a **failure** of the drill — find out why before going on. Pick one validator per step from a different provider/location, so the drill also proves each failure domain alone is survivable.
+  2. **Kill a 2nd (2 of 4 = 50 %) → the chain must halt.** 50 % is below ⅔ (more than ⅓ offline); `NoNewBlocks` must fire. This is exactly what losing one provider does with the default 2 Hetzner + 2 GCP split (terraform `validator_placement_warning`; STATUS §5a P16) — the drill is also the rehearsal for that outage.
+  3. **Restart both** → blocks resume at the next height without a double-sign: each restarted validator comes back on its own host, its own `priv_validator_state.json`, nothing restored from a snapshot (§2.7). The restart is what is being rehearsed.
+  Never run this drill on devnet-1: with one validator, killing it *is* a halt (100 % of voting power), which proves nothing and stops every dapp developer.
 - [ ] Verify `app_hash` agreement across validators after restart.
 - [ ] Confirm the patched version survives a `site.yml` run after the drill (`konstellationd_version`/`_sha256` bumped, `cosmovisor/genesis/bin` untouched).
 - [ ] Rehearse `coordinated-upgrade.md` §7's failed-handler rollback (`--unsafe-skip-upgrades`) once, on testnet, before it is ever needed.

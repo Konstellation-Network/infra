@@ -161,7 +161,7 @@ review, 2026-09-21). Two facts decide everything here:
   validator's `priv_validator_state.json` therefore records height H.
 - That file lives **inside `data/`** (`data/priv_validator_state.json`,
   CometBFT default). "Restore `data/` from the snapshot" restores the
-  state file too — to a height *below* H. Ten validators re-running
+  state file too — to a height *below* H. Every validator re-running
   consensus at H with a rewound state file would happily sign a
   *different* block H: `DuplicateVoteEvidence` for the entire set, 5 %
   slash and tombstone (D10), submittable by anyone who kept the original

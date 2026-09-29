@@ -4,19 +4,15 @@ node_role: monitoring
 # Validators tenderduty pages on. name = the validator's inventory hostname;
 # valoper = its operator address once the gentx exists. Empty valoper =
 # skipped with a warning at deploy time.
-# 10 foundation-run validators (ENGINEERING.md D7, 2026-09-20): v1-v5
-# Hetzner, v6-v10 GCP.
+# 4 foundation-run validators (D7, re-decided 2026-09-29): with the
+# terraform defaults (hetzner_validator_count = gcp_validator_count = 2)
+# v1-v2 Hetzner, v3-v4 GCP. Keep in step with those counts — names follow
+# them (terraform/envs/testnet-1/{hetzner,gcp}.tf).
 tenderduty_validators:
   - { name: testnet-1-hetzner-validator-v1, valoper: "" }
   - { name: testnet-1-hetzner-validator-v2, valoper: "" }
-  - { name: testnet-1-hetzner-validator-v3, valoper: "" }
-  - { name: testnet-1-hetzner-validator-v4, valoper: "" }
-  - { name: testnet-1-hetzner-validator-v5, valoper: "" }
-  - { name: testnet-1-gcp-validator-v6, valoper: "" }
-  - { name: testnet-1-gcp-validator-v7, valoper: "" }
-  - { name: testnet-1-gcp-validator-v8, valoper: "" }
-  - { name: testnet-1-gcp-validator-v9, valoper: "" }
-  - { name: testnet-1-gcp-validator-v10, valoper: "" }
+  - { name: testnet-1-gcp-validator-v3, valoper: "" }
+  - { name: testnet-1-gcp-validator-v4, valoper: "" }
 
 # Checksums from the upstream release sha256sums.txt — fail closed while empty.
 prometheus_sha256: ""

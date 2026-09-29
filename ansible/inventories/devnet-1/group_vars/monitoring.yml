@@ -1,0 +1,12 @@
+---
+node_role: monitoring
+
+# The validator tenderduty pages on. name = its inventory hostname; valoper
+# = its operator address once the gentx exists. Empty valoper = skipped with
+# a warning at deploy time. devnet-1 has one validator (D18).
+tenderduty_validators:
+  - { name: devnet-1-hetzner-validator-v1, valoper: "" }
+
+# Checksums from the upstream release sha256sums.txt — fail closed while empty.
+prometheus_sha256: ""
+alertmanager_sha256: ""

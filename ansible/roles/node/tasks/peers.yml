@@ -52,8 +52,13 @@
          if node_role == 'sentry' else [] }}
     validator_peer_ids: "{{ (same_cloud_validators | map(attribute='node_id') | list) if node_role == 'sentry' else [] }}"
 
+# A lone sentry (devnet-1 default) has no other sentry to cross-peer with:
+# its peers are the validator (which dials it) and inbound nodes, so an
+# empty list is correct there, not a missed node id.
 - name: Report peers that could not be wired (node id unknown in this run)
-  when: node_role in ['validator', 'sentry'] and p2p_persistent_peers | length == 0
+  when: >-
+    (node_role == 'validator' and p2p_persistent_peers | length == 0)
+    or (node_role == 'sentry' and p2p_persistent_peers | length == 0 and groups['sentries'] | default([]) | length > 1)
   ansible.builtin.debug:
     msg: >-
       {{ inventory_hostname }}: persistent_peers is EMPTY — no peer's node id is

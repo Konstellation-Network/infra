@@ -5,8 +5,9 @@
 # .example shows the expected shape before any infrastructure exists, with
 # the defaults: per-cloud bastions, monitoring on GCP, horcrux colocated (so
 # `cosigners` is empty; with horcrux_mode = dedicated it holds c1..c3). The
-# fleet is 10 validators (D7): v1-v5 Hetzner (.11-.15), v6-v10 GCP (.16-.20);
-# one of each cloud is shown.
+# fleet is 4 validators (D7, 2026-09-29) with the default per-provider
+# counts: v1-v2 Hetzner (.11-.12, fsn1/hel1), v3-v4 GCP (.16-.17, two
+# zones); one of each cloud is shown.
 all:
   vars:
     ansible_user: deploy
@@ -35,9 +36,9 @@ all:
           cloud: hetzner
           network_cidr: 10.0.1.0/24
           bastion_private_ip: 10.0.1.5
-        testnet-1-gcp-validator-v6:
+        testnet-1-gcp-validator-v3:
           ansible_host: 10.0.2.16
-          moniker: testnet-1-gcp-validator-v6
+          moniker: testnet-1-gcp-validator-v3
           cloud: gcp
           network_cidr: 10.0.2.0/24
           bastion_private_ip: 10.0.2.5
@@ -51,10 +52,10 @@ all:
           cloud: hetzner
           network_cidr: 10.0.1.0/24
           bastion_private_ip: 10.0.1.5
-        testnet-1-gcp-sentry-v6:
+        testnet-1-gcp-sentry-v3:
           ansible_host: 10.0.2.26
           public_ipv4: 198.51.100.26
-          moniker: testnet-1-gcp-sentry-v6
+          moniker: testnet-1-gcp-sentry-v3
           cloud: gcp
           network_cidr: 10.0.2.0/24
           bastion_private_ip: 10.0.2.5

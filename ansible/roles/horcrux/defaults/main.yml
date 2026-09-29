@@ -16,6 +16,8 @@ horcrux_shares: 3
 # dedicated  — this role runs on the `cosigners` group; one instance per
 #            validator on every cosigner host, cosigner list built from the
 #            inventory. terraform/envs/<net> var.horcrux_mode.
+# none       — (devnet-1) site.yml never runs this role; the validator signs
+#            with its own priv_validator_key.json (README "devnet-1").
 horcrux_mode: colocated
 
 # The port the validator's config.toml priv_validator_laddr listens on and
