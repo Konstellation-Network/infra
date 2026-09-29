@@ -225,6 +225,49 @@ output "cosigner_placement_warning" {
   )
 }
 
+# D7 re-decided 2026-09-29: 4 validators in 4 separate failure domains, so
+# losing one provider/region never halts the chain. CometBFT halts once
+# more than 1/3 of voting power is offline; at equal power a provider
+# holding n of N validators can halt the chain on its own when 3n >= N
+# (2 of 4 = 50 %). Said in every plan, in the style of the P21 warning
+# above. Not an error: which domains mainnet uses is still open (STATUS §5a
+# P16), and the 2 + 2 default is accepted for testnet-1 only.
+locals {
+  validator_total = var.hetzner_validator_count + var.gcp_validator_count
+  validators_per_provider = {
+    hetzner = var.hetzner_validator_count
+    gcp     = var.gcp_validator_count
+  }
+  halting_providers = [
+    for p, n in local.validators_per_provider : "${p} holds ${n} of ${local.validator_total} validators"
+    if n > 0 && n * 3 >= local.validator_total
+  ]
+
+  # Within a provider: a Hetzner location / GCP zone is the smaller domain.
+  validator_domains = concat(
+    [for v in local.hetzner_validators : "hetzner/${v.location}"],
+    [for v in local.gcp_validators : "gcp/${v.zone}"],
+  )
+  shared_validator_domains = [
+    for d in distinct(local.validator_domains) : d
+    if length([for x in local.validator_domains : x if x == d]) > 1
+  ]
+
+  validator_placement_problems = compact([
+    length(local.halting_providers) > 0 ? "${join("; ", local.halting_providers)} — each is >= 1/3 of voting power, so losing that one provider halts the chain." : "",
+    var.gcp_validator_count >= 2 ? "The ${var.gcp_validator_count} GCP validators share region ${var.gcp_region} — a regional outage takes them together." : "",
+    length(local.shared_validator_domains) > 0 ? "More than one validator in: ${join(", ", local.shared_validator_domains)}." : "",
+  ])
+}
+
+output "validator_placement_warning" {
+  value = (
+    length(local.validator_placement_problems) > 0
+    ? "WARNING: ${join(" ", local.validator_placement_problems)} Acceptable for testnet-1 only (4 separate failure domains is the rule; which ones is open — STATUS §5a P16)."
+    : "ok"
+  )
+}
+
 output "validator_private_ips" {
   value = { for k, v in local.inventory_validators : k => v.private_ip }
 }

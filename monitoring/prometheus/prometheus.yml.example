@@ -1,7 +1,7 @@
 # Example of what ansible/roles/monitoring_server/templates/prometheus.yml.j2
 # renders on the monitoring host (terraform/modules/<cloud>/monitoring),
-# for the default topology: 10 validators (v1-v5 Hetzner 10.0.1.11-.15,
-# v6-v10 GCP 10.0.2.16-.20), sentries, rpc, archives, both bastions, the
+# for the testnet-1 default topology: 4 validators (v1-v2 Hetzner
+# 10.0.1.11-.12, v3-v4 GCP 10.0.2.16-.17), sentries, rpc, archives, both bastions, the
 # cosigners in dedicated mode, tenderduty, and itself. Targets are private
 # IPs from the inventory; the other cloud is reached through the bastions'
 # WireGuard tunnel. Not deployed from here — the template is the source;
@@ -27,7 +27,7 @@ scrape_configs:
       - targets: ["10.0.1.11:26660"]
         labels: { instance: testnet-1-hetzner-validator-v1, role: validator, cloud: hetzner }
       - targets: ["10.0.2.16:26660"]
-        labels: { instance: testnet-1-gcp-validator-v6, role: validator, cloud: gcp }
+        labels: { instance: testnet-1-gcp-validator-v3, role: validator, cloud: gcp }
   - job_name: konstellation-sentries
     static_configs:
       - targets: ["10.0.1.21:26660"]

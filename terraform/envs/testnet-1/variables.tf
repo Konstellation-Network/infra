@@ -22,12 +22,50 @@ variable "operator_ssh_cidrs" {
 
 # --- Topology choices (see README.md "Decisions parametrised here") ---
 
+# D7 re-decided 2026-09-29: 4 foundation-run validators (was 10 = 5 + 5).
+# The placement rule is 4 separate failure domains, so that losing one
+# provider/region never halts the chain — with 4 equal-power validators one
+# down leaves 75 % (> 2/3, live) and two down leaves 50 % (halt). WHICH four
+# domains is still OPEN (Contabo / more clouds / more regions; STATUS §5a
+# P16), so the per-provider split is a pair of variables. The testnet-1
+# default, 2 Hetzner (fsn1 + hel1) + 2 GCP (two zones), puts 2 of 4 — 50 %
+# of voting power — behind one provider: losing either provider halts the
+# chain. Accepted for testnet-1 only; outputs.tf validator_placement_warning
+# says so in every plan. Names run v1..vN on Hetzner then continue on GCP;
+# private-IP slots are fixed per cloud (.11-.15 / .16-.20), hence <= 5 each.
+variable "hetzner_validator_count" {
+  description = "Validators (and 1:1 sentries) on Hetzner, spread over hetzner_locations in order. 0-5."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.hetzner_validator_count >= 0 && var.hetzner_validator_count <= 5 && floor(var.hetzner_validator_count) == var.hetzner_validator_count
+    error_message = "hetzner_validator_count must be a whole number from 0 to 5 (the .11-.15 / .21-.25 address slots)."
+  }
+}
+
+variable "gcp_validator_count" {
+  description = "Validators (and 1:1 sentries) on GCP, spread over gcp_zones in order. 0-5. Named after the Hetzner ones (default v3, v4)."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.gcp_validator_count >= 0 && var.gcp_validator_count <= 5 && floor(var.gcp_validator_count) == var.gcp_validator_count
+    error_message = "gcp_validator_count must be a whole number from 0 to 5 (the .16-.20 / .26-.30 address slots)."
+  }
+
+  validation {
+    condition     = var.hetzner_validator_count + var.gcp_validator_count >= 1
+    error_message = "The fleet needs at least one validator."
+  }
+}
+
 variable "cosigner_ssh_public_key" {
   description = <<-EOT
     SSH public key for the Horcrux cosigner hosts (horcrux_mode = dedicated)
     — a DIFFERENT key from ssh_public_key, held by whoever administers the
     signing cluster, so one leaked fleet deploy key is not three shards, i.e.
-    the consensus key of all ten validators. Interim for STATUS §5a P21
+    the consensus key of every validator in the fleet. Interim for STATUS §5a P21
     (cosigner admin domains: separate keys/operators per cosigner, hardware-
     backed, sudo restricted — not decided). Required in dedicated mode and
     must differ from ssh_public_key; ignored in colocated mode. The
@@ -188,7 +226,7 @@ variable "hetzner_network_zone" {
 }
 
 variable "hetzner_locations" {
-  description = "Hetzner locations to spread this cloud's share of the fleet across — all inside hetzner_network_zone (eu-central: fsn1, nbg1, hel1). Provider/ASN diversity across the two clouds is the D7 mainnet property; within Hetzner, three datacentres is what one network zone allows."
+  description = "Hetzner locations to spread this cloud's share of the fleet across, in order (validator i -> element i mod n; default v1 fsn1, v2 hel1) — all inside hetzner_network_zone (eu-central: fsn1, nbg1, hel1). Each validator should get its own location (validator_placement_warning flags a shared one); within Hetzner, three datacentres is what one network zone allows."
   type        = list(string)
   default     = ["fsn1", "hel1", "nbg1"]
 
@@ -211,7 +249,7 @@ variable "gcp_region" {
 }
 
 variable "gcp_zones" {
-  description = "Zones within gcp_region to spread this cloud's share of testnet-1 across."
+  description = "Zones within gcp_region to spread this cloud's share of testnet-1 across, in order (default v3 us-central1-a, v4 us-central1-b). Zones are separate failure domains for a zonal outage only — every GCP validator still shares gcp_region, so a regional outage takes all of them (validator_placement_warning)."
   type        = list(string)
   default     = ["us-central1-a", "us-central1-b", "us-central1-c"]
 }

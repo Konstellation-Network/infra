@@ -130,9 +130,12 @@ groups:
       # sentry p2p never crosses the tunnel, BUT in dedicated horcrux mode
       # the cosigners do (STATUS §5a P22): the far cloud's cosigner is
       # partitioned from the other two, and every validator whose signing
-      # cluster just lost its quorum path stops signing — with 5 of 10
-      # validators per cloud that is a chain halt within seconds. Treat as
-      # a halt in progress until proven otherwise.
+      # cluster just lost its quorum path stops signing — with testnet-1's
+      # default 2 of 4 validators per cloud (50 % of voting power) that is a
+      # chain halt within seconds. And if it is a real cloud outage rather
+      # than the tunnel, the same 2 of 4 are down in any horcrux mode: halt
+      # (STATUS §5a P16; terraform validator_placement_warning). Treat as a
+      # halt in progress until proven otherwise.
       - alert: CloudUnreachable
         expr: |
           count by (cloud) (up{job="node-exporter", cloud!=""} == 0)

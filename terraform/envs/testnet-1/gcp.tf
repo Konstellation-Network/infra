@@ -1,4 +1,5 @@
-# GCP's share of testnet-1: 5 validators, 5 sentries (1:1), 1 archive, 1 RPC,
+# GCP's share of testnet-1: var.gcp_validator_count validators (2 by default,
+# in two different zones), as many sentries (1:1), 1 archive, 1 RPC,
 # the GCP bastion/gateway, Cloud NAT for the public-IP-less VMs, and —
 # depending on var.monitoring_cloud / var.horcrux_mode — the monitoring host
 # and/or some cosigners. See hetzner.tf for the other half.
@@ -263,19 +264,21 @@ resource "google_compute_firewall" "cosigner_p2p" {
 # --- Hosts ---
 
 locals {
-  gcp_validator_names = ["v6", "v7", "v8", "v9", "v10"] # continues the Hetzner v1-v5 numbering (D7: 10 validators)
+  # Continues the Hetzner numbering (default: v3, v4). D7 re-decided
+  # 2026-09-29: 4 validators fleet-wide, see hetzner.tf.
+  gcp_validator_names = [for i in range(var.gcp_validator_count) : "v${var.hetzner_validator_count + i + 1}"]
 
   gcp_validators = {
     for i, n in local.gcp_validator_names : n => {
       zone       = element(var.gcp_zones, i % length(var.gcp_zones))
-      private_ip = cidrhost(var.gcp_network_ip_range, 15 + i + 1) # .16-.20 (continuing from hetzner's .11-.15)
+      private_ip = cidrhost(var.gcp_network_ip_range, 15 + i + 1) # .16-.20 slots (count <= 5; hetzner has .11-.15)
     }
   }
 
   gcp_sentries = {
     for i, n in local.gcp_validator_names : n => {
       zone       = element(var.gcp_zones, i % length(var.gcp_zones))
-      private_ip = cidrhost(var.gcp_network_ip_range, 25 + i + 1) # .26-.30
+      private_ip = cidrhost(var.gcp_network_ip_range, 25 + i + 1) # .26-.30 slots
     }
   }
 

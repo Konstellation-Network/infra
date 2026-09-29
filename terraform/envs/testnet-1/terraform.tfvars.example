@@ -13,6 +13,10 @@ ssh_public_key = "ssh-ed25519 AAAA... deploy@bootstrap"
 operator_ssh_cidrs = ["203.0.113.10/32"]
 
 # Topology decisions — defaults documented in variables.tf and README.md.
+# 4 validators (D7, 2026-09-29), split per provider. 2 + 2 puts half the voting
+# power behind each provider — the plan's validator_placement_warning says so.
+# hetzner_validator_count = 2   # v1 fsn1, v2 hel1 (hetzner_locations order)
+# gcp_validator_count     = 2   # v3, v4 in gcp_zones[0], gcp_zones[1]
 # bastion_ssh_entry = "per-cloud"   # or "hetzner" / "gcp": one internet-facing sshd
 # monitoring_cloud  = "gcp"
 # horcrux_mode      = "colocated"   # "dedicated" provisions cosigner_placement
