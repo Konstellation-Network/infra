@@ -1,0 +1,40 @@
+---
+# Shared across every node in devnet-1 — the dapp-developer network (D18,
+# decided 2026-09-29). Values mirror ENGINEERING.md §1: devnet-1 / EIP-155
+# 56672. Everything not set here is the same as testnet-1 on purpose.
+
+chain_id: devnet-1
+evm_chain_id: 56672
+bech32_prefix: kons
+base_denom: esp
+denom_display: KASH
+
+daemon_name: konstellationd
+daemon_home: /home/konstellation/.konstellationd
+
+# devnet-1 runs the MAINNET binary version (D18): dapp developers must build
+# against exactly what konstellation-1 runs. Pin the same release as
+# konstellation-1 — not testnet-1's, which runs ahead to rehearse upgrades.
+# Fill from the release checklist (ENGINEERING.md §16) once a build exists.
+konstellationd_version: ""
+konstellationd_sha256: ""
+
+# Krakatoa app-side mempool (ENGINEERING.md §11 D13): same as every network.
+mempool_type: app
+
+prometheus_enabled: true
+prometheus_port: 26660
+
+# Per-host network facts (bastion_private_ip, network_cidr, cloud) and the
+# network-wide ones (fleet_cidrs, monitoring_host_private_ip, horcrux_mode =
+# none, cross_cloud_tunnel = false) come from terraform's hosts.yml
+# (terraform/envs/devnet-1/outputs.tf + inventory.tpl.yml).
+
+# --- Alert routing (ansible/roles/monitoring_server): placeholders until
+# the on-call rota exists (ENGINEERING.md §17, runbooks/on-call.md). Set
+# from a vault file, never in plain text here. devnet-1 halting is a page
+# for dapp developers, not for users' funds — route it lower than
+# testnet-1/mainnet if the rota distinguishes. ---
+alert_pagerduty_routing_key: ""
+alert_slack_webhook_url: ""
+alert_webhook_url: ""

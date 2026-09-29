@@ -1,0 +1,26 @@
+---
+node_role: rpc
+
+pex: true
+pruning: custom
+pruning_keep_recent: "100"
+pruning_interval: "10"
+
+public_ip: true
+
+jsonrpc_enabled: true
+jsonrpc_bind_address: "0.0.0.0"  # public RPC node
+rpc_bind_address: "0.0.0.0"      # CometBFT RPC 26657, public
+api_enabled: true                # REST 1317, public
+
+# Node-local mempool floor for the one host that accepts transactions from
+# the internet. NOT a protocol parameter: TOKENOMICS.md §3 keeps the
+# protocol floor at 0 and lets the base fee decay when idle; this only
+# makes the public RPC's open mempool a non-free spam target. 1 gwei-
+# equivalent = the initial base fee (TOKENOMICS.md §3). FLAGGED: the
+# TOKENOMICS owner should confirm — with a floor here, a user of the
+# public RPC pays at least this even when the chain-wide base fee is lower
+# (validators and sentries stay at init's 0esp). Same floor as testnet-1:
+# this is the endpoint dapp developers and the faucet use, and it should
+# price like mainnet's will.
+minimum_gas_prices: "1000000000esp"

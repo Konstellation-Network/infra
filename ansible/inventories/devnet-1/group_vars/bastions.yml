@@ -1,0 +1,5 @@
+---
+node_role: bastion
+# ssh_entry, operator_ssh_cidrs, nat_gateway and remote_cidrs (empty) are
+# per-host from terraform's inventory output (hosts.yml). devnet-1 has one
+# bastion and no WireGuard tunnel (cross_cloud_tunnel: false).

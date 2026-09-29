@@ -1,0 +1,19 @@
+---
+node_role: validator
+
+pex: false
+# persistent_peers is computed by roles/node/tasks/peers.yml: every sentry
+# (node ids read after init). Set here/in host_vars only to override.
+persistent_peers: ""
+
+pruning: custom
+pruning_keep_recent: "100"
+pruning_interval: "10"
+
+public_ip: false
+
+# devnet-1 has no Horcrux (horcrux_mode = none, README "devnet-1"): the one
+# validator signs with its own priv_validator_key.json. Must stay false —
+# roles/node asserts it. ENGINEERING.md §2.7 still applies in full: the key
+# (and priv_validator_state.json) exists on exactly one running host, ever.
+horcrux_enabled: false
