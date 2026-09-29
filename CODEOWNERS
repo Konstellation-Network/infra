@@ -20,3 +20,11 @@
 # Runbooks are what the on-call follows at 03:00 (§17); a wrong step here is
 # an incident. Same owners, separate line for the same reason as above.
 /runbooks/  @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01
+
+# devnet-1 (D18, 2026-09-29): the dapp-developer network. No user funds, but
+# a wrong `apply` there halts every developer building on Konstellation (it
+# has one validator). Same pattern as the konstellation-1 row: same owners,
+# listed separately so a rule can be attached without touching the rest.
+# (testnet-1 has no row of its own — the catch-all covers it.)
+/terraform/envs/devnet-1/              @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01
+/ansible/inventories/devnet-1/         @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01
