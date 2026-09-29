@@ -4,6 +4,18 @@
 # from CI in the konstellation repo). This role fails closed if the version
 # pin or checksum vars are empty rather than silently skip verification.
 
+# First, before anything changes on the host: a validator waiting on a
+# remote signer that this network does not have would never sign again.
+- name: Fail if a validator is set to wait for a remote signer that this network does not have
+  when: node_role == 'validator'
+  ansible.builtin.assert:
+    that:
+      - not (horcrux_enabled | bool) or horcrux_mode in ['colocated', 'dedicated']
+    fail_msg: >-
+      horcrux_enabled is true but horcrux_mode={{ horcrux_mode }}: no cosigner
+      would ever connect to priv_validator_laddr and the validator would stop
+      signing. On devnet-1 the validator signs with its own key.
+
 - name: Fail if konstellationd_version/sha256 are unset
   ansible.builtin.assert:
     that:

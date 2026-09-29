@@ -72,5 +72,7 @@ allow_data_rebuild: false
 # priv_validator_key.json must be gone from the host before a remote signer
 # for the same key is live.
 horcrux_enabled: false
+# colocated | dedicated | none (devnet-1: no remote signer exists, so
+# horcrux_enabled must stay false — asserted in tasks/main.yml)
 horcrux_mode: colocated
 horcrux_privval_port: 1234
