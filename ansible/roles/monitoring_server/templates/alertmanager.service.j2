@@ -10,7 +10,8 @@ Group=alertmanager
 ExecStart=/usr/local/bin/alertmanager \
   --config.file=/etc/alertmanager/alertmanager.yml \
   --storage.path={{ monitoring_data_dir }}/alertmanager \
-  --web.listen-address=127.0.0.1:{{ alertmanager_port }}
+  --web.listen-address=127.0.0.1:{{ alertmanager_port }} \
+  --cluster.listen-address={{ alertmanager_cluster_listen_host }}:{{ alertmanager_cluster_port }}
 Restart=on-failure
 RestartSec=3
 

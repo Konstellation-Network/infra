@@ -23,6 +23,22 @@ prometheus_release_url: "https://github.com/prometheus/prometheus/releases/downl
 # metrics port (26660) in group_vars/all.yml and would have won over a role
 # default here (caught by tests/render_test.yml, 2026-09-21).
 prometheus_web_port: 9090
+# Ports a chain node binds on its own host. Only matters where the
+# monitoring host is also a chain node (devnet-1: archive + monitoring on
+# server 3); tasks/port_guard.yml refuses any overlap with the ports above
+# and below. 9090 is the Cosmos SDK gRPC default (localhost:9090, enabled
+# by `konstellationd init`), which is why devnet-1 moves prometheus_web_port
+# off it. 6065 / 8100: cosmos/evm JSON-RPC and geth metrics defaults.
+monitoring_colocated_node_ports:
+  - 26656
+  - 26657
+  - "{{ prometheus_port | default(26660) }}"
+  - 1317
+  - "{{ jsonrpc_port | default(8545) }}"
+  - "{{ jsonrpc_ws_port | default(8546) }}"
+  - 9090
+  - 6065
+  - 8100
 prometheus_retention: "90d"
 prometheus_scrape_interval: 15s
 
@@ -30,6 +46,12 @@ alertmanager_version: "0.27.0"
 alertmanager_sha256: ""
 alertmanager_release_url: "https://github.com/prometheus/alertmanager/releases/download/v{{ alertmanager_version }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
 alertmanager_port: 9093
+# alertmanager's HA gossip listener. 0.0.0.0:9094 is alertmanager's own
+# default (kept for testnet-1, where the host is private-only); devnet-1's
+# monitoring host has a public IP, so it binds loopback — a single
+# alertmanager gossips with nobody.
+alertmanager_cluster_listen_host: "0.0.0.0"
+alertmanager_cluster_port: 9094
 
 # Grafana from its signed apt repository (apt verifies the package signature,
 # so no sha256 var). Pin the version so an apt upgrade cannot surprise the
@@ -77,9 +99,10 @@ tenderduty_validators: []
 #   - name: testnet-1-hetzner-validator-v1
 #     valoper: konsvaloper1...
 # RPC endpoints tenderduty queries; defaults to every sentry + the rpc node
-# on their private IPs (validators expose no RPC).
+# on their private IPs (validators expose no RPC). A host that is both a
+# sentry and the rpc node (devnet-1 on Contabo) is listed once.
 tenderduty_rpc_nodes: >-
-  {{ (groups['sentries'] | default([]) + groups['rpc'] | default([]))
+  {{ (groups['sentries'] | default([]) + groups['rpc'] | default([])) | unique
      | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', 'http://\1:26657') | list }}
 tenderduty_consecutive_missed: 5
 tenderduty_percentage_missed: 10

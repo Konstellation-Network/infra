@@ -22,9 +22,10 @@
 /runbooks/  @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01
 
 # devnet-1 (D18, 2026-09-29): the dapp-developer network. No user funds, but
-# a wrong `apply` there halts every developer building on Konstellation (it
-# has one validator). Same pattern as the konstellation-1 row: same owners,
-# listed separately so a rule can be attached without touching the rest.
+# a wrong `site.yml` run there halts every developer building on
+# Konstellation (it has one validator). Same pattern as the konstellation-1
+# row: same owners, listed separately so a rule can be attached without
+# touching the rest. devnet-1 runs on hand-ordered Contabo servers
+# (2026-09-30): no OpenTofu env, the inventory is all there is.
 # (testnet-1 has no row of its own — the catch-all covers it.)
-/terraform/envs/devnet-1/              @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01
 /ansible/inventories/devnet-1/         @defidevrel @Evangel90 @Levi-Ojukwu @OlolaJaco @Psalmuel01

@@ -1,19 +1,44 @@
 ---
 node_role: rpc  # overridden per group_vars: validator / sentry / rpc / archive / bastion / monitoring / cosigner
-# This cloud's bastion private IP — the only SSH source for every non-bastion
-# host. Per-host, from terraform's inventory output.
+# Group -> role, for hosts in several role groups (tasks/plan.yml takes the
+# union). devnet-1 on Contabo: server 2 = bastions+sentries+rpc, server 3 =
+# archive+monitoring.
+firewall_group_roles:
+  validators: validator
+  sentries: sentry
+  rpc: rpc
+  archive: archive
+  bastions: bastion
+  monitoring: monitoring
+  cosigners: cosigner
+# true (testnet-1, mainnet): hosts sit on a cloud private network and the
+# *_private_ip / *_cidrs below are private addresses. false (devnet-1 on
+# Contabo, 2026-09-30): every host has only a public IPv4 and there is no
+# private network, NAT or tunnel — the same variables then hold PUBLIC
+# addresses, network_cidr is not used, and tasks/plan.yml insists every
+# internal source is an exact /32.
+private_network: true
+# The SSH source for every non-bastion host: this cloud's bastion private IP
+# (per-host, from terraform's inventory output). With private_network:
+# false, the entry host's public IP.
 bastion_private_ip: ""
 network_cidr: ""  # per-host, from terraform's inventory output — Hetzner and GCP have separate private networks
 # Both clouds' private networks. Internal-only ports admit the whole fleet
 # because the monitoring host / cosigners may be in the other cloud, reached
 # through the bastions' routed WireGuard tunnel with their real source IP.
+# With private_network: false, the hosts' public /32s.
 fleet_cidrs: []
+# Who may scrape node_exporter (9100) and CometBFT metrics (prometheus_port).
+# Defaults to the whole fleet (testnet-1 behaviour); devnet-1 narrows it to
+# the monitoring host's /32, since there every other "fleet" address is an
+# internet-facing host.
+metrics_scrape_cidrs: "{{ fleet_cidrs }}"
 # Archive nodes: who may reach RPC/REST/JSON-RPC — group_vars/archive.yml
 # sets it to the monitoring host + explorer; /24 or narrower, asserted.
 archive_rpc_allowed_cidrs: []
 # Explorer backend only: REST + the debug JSON-RPC. Empty until it exists.
 archive_explorer_cidrs: []
-monitoring_host_private_ip: ""
+monitoring_host_private_ip: ""  # with private_network: false, the monitoring host's public IP
 horcrux_debug_base_port: 8453
 cloud: ""
 prometheus_port: 26660

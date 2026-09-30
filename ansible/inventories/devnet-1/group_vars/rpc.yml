@@ -1,5 +1,9 @@
 ---
 node_role: rpc
+# devnet-1 on Contabo: the rpc role shares server 2 with the sentry (one
+# konstellationd; hosts.yml pins node_role: sentry there). The keys below
+# that sentries.yml does not set — JSON-RPC, REST, the mempool floor — come
+# from here; the ones both files set must stay identical.
 
 pex: true
 pruning: custom

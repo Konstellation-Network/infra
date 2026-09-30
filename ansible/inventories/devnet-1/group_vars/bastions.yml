@@ -1,5 +1,8 @@
 ---
 node_role: bastion
-# ssh_entry, operator_ssh_cidrs, nat_gateway and remote_cidrs (empty) are
-# per-host from terraform's inventory output (hosts.yml). devnet-1 has one
-# bastion and no WireGuard tunnel (cross_cloud_tunnel: false).
+# devnet-1 on Contabo: the bastion role runs on server 2, which is also the
+# sentry and the public RPC node (hosts.yml pins node_role: sentry on that
+# host; roles/firewall takes the union of the bastion, sentry and rpc
+# rules). It is only the SSH entry point here: ssh_entry: true,
+# operator_ssh_cidrs from hosts.yml, nat_gateway: false, no tunnel
+# (cross_cloud_tunnel: false), so roles/bastion leaves IPv4 forwarding off.

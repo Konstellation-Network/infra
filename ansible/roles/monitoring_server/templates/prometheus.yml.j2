@@ -16,16 +16,24 @@ alerting:
         - targets: ["127.0.0.1:{{ alertmanager_port }}"]
 
 scrape_configs:
+{# A host in two chain groups (devnet-1: sentry + rpc on one node) is one
+   konstellationd, so it is scraped once — under its first group — not once
+   per group, which would double every series and every alert on it. #}
+{% set scraped = namespace(hosts=[]) %}
 {% for group in ['validators', 'sentries', 'rpc', 'archive'] %}
+{% set members = groups[group] | default([]) | reject('in', scraped.hosts) | list %}
+{% set scraped.hosts = scraped.hosts + members %}
+{% if members | length > 0 %}
   - job_name: konstellation-{{ group }}
     static_configs:
-{% for host in groups[group] | default([]) %}
+{% for host in members %}
       - targets: ["{{ hostvars[host]['ansible_host'] }}:{{ hostvars[host]['prometheus_port'] | default(26660) }}"]
         labels:
           instance: {{ host }}
           role: {{ hostvars[host]['node_role'] | default(group) }}
           cloud: {{ hostvars[host]['cloud'] | default('') }}
 {% endfor %}
+{% endif %}
 {% endfor %}
 
   - job_name: node-exporter

@@ -25,10 +25,26 @@ mempool_type: app
 prometheus_enabled: true
 prometheus_port: 26660
 
-# Per-host network facts (bastion_private_ip, network_cidr, cloud) and the
-# network-wide ones (fleet_cidrs, monitoring_host_private_ip, horcrux_mode =
-# none, cross_cloud_tunnel = false) come from terraform's hosts.yml
-# (terraform/envs/devnet-1/outputs.tf + inventory.tpl.yml).
+# --- The Contabo shape (founder decision, 2026-09-30; README "devnet-1") ---
+# Three hand-ordered VPSes, each with one public IPv4 and one disk. The
+# addresses live in hosts.yml (hand-written from hosts.yml.example; no
+# OpenTofu). These are the properties of the shape, not of the addresses:
+cloud: contabo
+# No private network: every address in hosts.yml is public, roles/firewall
+# admits internal ports from exact /32s only, and no host NATs or routes.
+private_network: false
+# Chain data on the root disk, next to the key: roles/node swaps the
+# data-volume guards for tasks/state_guard.yml (ENGINEERING.md §2.7).
+single_disk: true
+# One validator signing with its own priv_validator_key.json: no Horcrux
+# hosts or instances. site.yml skips both horcrux plays.
+horcrux_mode: none
+# One provider: no site-to-site WireGuard tunnel (site.yml skips
+# roles/wireguard); the bastion role does not forward packets.
+cross_cloud_tunnel: false
+# No seed node on devnet-1: the archive (server 3) peers with the sentry
+# (server 2) directly, node ids read after init (roles/node/tasks/peers.yml).
+peer_non_validators_with_sentries: true
 
 # --- Alert routing (ansible/roles/monitoring_server): placeholders until
 # the on-call rota exists (ENGINEERING.md §17, runbooks/on-call.md). Set

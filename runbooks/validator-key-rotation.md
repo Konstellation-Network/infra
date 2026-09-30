@@ -113,7 +113,14 @@ Symptom: tenderduty pages missed blocks; the host is unreachable.
   its state file together from the old disk (after the same proof the old
   server is deleted). If the state file died with the host there is no
   rehearsed answer yet — stop and escalate (re-genesis vs. a deliberate
-  one-off; `infra/README.md` "devnet-1"), do not improvise.
+  one-off; `infra/README.md` "devnet-1"), do not improvise. devnet-1 runs
+  on Contabo (2026-09-30): "proof" is the Contabo panel showing the old
+  VPS cancelled or reinstalled, not a failed SSH through server 2. Its
+  validator keeps key, state and data on one disk, so `site.yml` stops
+  (`roles/node/tasks/state_guard.yml`) whenever the key is present and
+  `priv_validator_state.json` is not — the moment to read this paragraph,
+  not to write a height-0 state file. Never restore a Contabo snapshot of
+  the validator over a running chain: it rolls the state file back.
 
 GCP validators on Local SSD (`terraform/modules/gcp/validator`,
 `infra/README.md`) lose their disk — key *and* state — on a host

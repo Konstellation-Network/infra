@@ -6,6 +6,9 @@
       - alertmanager_sha256 | length > 0
     fail_msg: "prometheus_sha256 and alertmanager_sha256 must be set — never install unverified."
 
+- name: Fail on a port collision (tasks/port_guard.yml)
+  ansible.builtin.import_tasks: port_guard.yml
+
 - name: Fail if tenderduty is not pinned by digest
   when: tenderduty_require_digest | bool
   ansible.builtin.assert:

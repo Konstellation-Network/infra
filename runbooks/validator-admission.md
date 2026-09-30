@@ -4,10 +4,12 @@
 admission through this procedure on testnet-1, and phase 6 admits the first
 independent operators with it. The first run rewrites this file.
 
-The genesis set is 10 foundation-run validators (D7), created by gentx.
-`genesis.json` ships with `/cosmos.staking.v1beta1.MsgCreateValidator` in
-`x/circuit`'s `disabled_type_urls` on both networks, so **nobody can create
-a validator** — the message is refused at submission (mempool pre-check),
+The genesis set is 4 foundation-run validators on testnet-1 and on
+mainnet (D7, re-decided 2026-09-29), created by gentx. devnet-1 has one
+validator and **never admits others** (D18), so this runbook is not used
+there. `genesis.json` ships with `/cosmos.staking.v1beta1.MsgCreateValidator` in
+`x/circuit`'s `disabled_type_urls` on every network (`konstellationd init`
+writes it), so **nobody can create a validator** — the message is refused at submission (mempool pre-check),
 in the ante handler, at the router, and inside the staking precompile
 (`app/circuit_precompiles.go`), nested `authz` included (D14). Admission is
 therefore: open the breaker, let the operator's `MsgCreateValidator` in,
@@ -19,7 +21,7 @@ is open from genesis (D7).
 
 | | |
 |---|---|
-| **Admin** | the `x/circuit` `LEVEL_SUPER_ADMIN` account from `genesis.json` `account_permissions` (`ENGINEERING.md §18`): the 3-of-5 operations multisig on mainnet, a dev key on testnet-1 |
+| **Admin** | the `x/circuit` `LEVEL_SUPER_ADMIN` account from `genesis.json` `account_permissions` (`ENGINEERING.md §18`): the 3-of-5 operations multisig on mainnet; on testnet-1 still undecided (STATUS §5a P32). `networks/scripts/gen-genesis.sh --circuit-admin` writes it, and **refuses unless the admin also has a genesis allocation** (`networks` #3, merged 2026-09-30): an address with no balance has no account, so it could neither sign nor pay the fees for `reset`/`disable`. Check before the window: `konstellationd query bank balances <admin> --node <rpc>` is non-zero |
 | **Operator** | the party being admitted; holds their own operator key and consensus key (`validator-key-rotation.md` — Horcrux is strongly recommended, not enforced) |
 | **Lead** | the on-call engineer running the window (`on-call.md`); posts in the operator channel (`incident-comms.md`) |
 
@@ -56,9 +58,12 @@ is open from genesis (D7).
      ```
      The lead dry-runs it: `konstellationd tx validate-signatures
      signed-create-validator.json` and checks the pubkey, addresses,
-     amounts and commission against what was agreed. Nothing is broadcast
-     yet — broadcasting now is refused by the breaker anyway, which is a
-     free check that the gate is still closed.
+     amounts and commission against what was agreed. **Nothing is
+     broadcast yet — not even "to check the gate is closed":** it would be
+     refused, and the node's seen-cache would then drop the very same file
+     when it is broadcast inside the window (see "The window"). Check the
+     gate with `query circuit disabled-list` instead. The operator keeps
+     `unsigned.json` and their signer at hand for a re-sign.
 3. **Admin readiness.** The multisig signers are online for the window
    (mainnet: three of five, `incident-comms.md` "Key holders"). Two
    admin transactions are pre-built:
@@ -72,7 +77,11 @@ is open from genesis (D7).
    ```
    On mainnet each is signed by the multisig's members (`tx multisign`)
    ahead of the window, with sequence numbers set so that `reset` and
-   `disable` are consecutive (`--sequence`, `--offline`).
+   `disable` are consecutive (`--sequence`, `--offline`). Give both an
+   explicit fee (`--gas`, `--gas-prices`) like the operator's message.
+   The pre-signed `disable` is **not** broadcast early "to have it ready":
+   if it lands in the same block as `reset`, the gate is closed again
+   before the operator's message can enter (see the window below).
 4. **Confirm the current state is closed**, and that the disabled list
    contains nothing else you would be surprised by:
    ```sh
@@ -83,31 +92,58 @@ is open from genesis (D7).
 
 ## The window
 
-Aim for **one block**: the three transactions — `reset`, the operator's
-`create-validator`, `disable` — broadcast back-to-back to the same sentry
-RPC, in that order, within one block time (~1.5 s target; realistically
-they land in one or two consecutive blocks). The order is enforced by the
-sequence numbers on the admin side; the operator's tx only depends on the
-`reset` having executed, so it is submitted the instant `reset` is seen
-in a block (or in the same block, if the node's mempool orders by
-arrival — do not rely on that).
+The shape is fixed by where the breaker is checked. `x/circuit` refuses
+`MsgCreateValidator` already at submission (the mempool pre-check,
+`CheckTx`), and `CheckTx` sees state only as of the **last committed
+block**. So the window is three blocks at best, never one:
+
+| Block | What lands | Why not earlier |
+|---|---|---|
+| **N** | admin's `reset` (gate open) | — |
+| **N+1** | operator's `create-validator` | until N is committed, every node's `CheckTx` still sees the gate closed and refuses the message |
+| **N+1 or N+2** | admin's `disable` (gate closed) | broadcast only after the `create-validator` has passed `CheckTx`; if it lands before it in the same block, the create fails and you run a new window — the gate is never left open |
+
+Two rules follow, both learned on a live node (STATUS §5a P28, 2026-09-30):
+
+1. **Never broadcast the pre-signed `create-validator` before
+   `query tx <reset hash>` shows a height.** Broadcast earlier, it is
+   refused at `CheckTx` — and the refusal is not free: the node's
+   seen-cache keeps the refused tx's hash, so broadcasting **the same
+   file** again after the gate opens is dropped as a duplicate, not
+   re-checked.
+2. **If the `create-validator` is refused for any reason, re-sign with
+   new bytes** — same account and **same sequence** (a refused tx does
+   not consume it), but a different memo (`--note "admission retry 2"`)
+   or fee — and broadcast that. Identical bytes will not go through.
+   The operator should arrive with an unsigned copy
+   (`unsigned.json`) and their signer ready for exactly this.
 
 ```sh
 # terminal 1 — lead, watching
 konstellationd query circuit disabled-list --node <rpc>   # loop this
+konstellationd status --node <rpc> | jq -r .sync_info.latest_block_height
 
-# terminal 2 — admin
-konstellationd tx broadcast reset.json   --node <rpc> --broadcast-mode sync
-# wait for it in a block:
-konstellationd query tx <hash> --node <rpc>
+# terminal 2 — admin: open
+konstellationd tx broadcast reset.json --node <rpc> --broadcast-mode sync
+konstellationd query tx <reset hash> --node <rpc>         # repeat until it shows height N, code 0
+# (disabled-list no longer contains MsgCreateValidator)
 
-# terminal 3 — operator (or the lead, with the operator's signed file)
+# terminal 3 — operator (or the lead with their signed file): ONLY after the line above shows a height
 konstellationd tx broadcast signed-create-validator.json --node <rpc> --broadcast-mode sync
-konstellationd query tx <hash> --node <rpc>               # code 0 expected
+#   code 0 at CheckTx -> go on.
+#   refused -> read the raw_log, fix if needed, re-sign with a new memo/fee
+#              (same --sequence, --offline), broadcast the NEW file. Never
+#              re-broadcast the refused file.
+konstellationd query tx <create hash> --node <rpc>        # height N+1 (or later), code 0 expected
 
-# terminal 2 — admin, immediately, whether or not step 3 succeeded
+# terminal 2 — admin: close, as soon as the create passed CheckTx, and
+# whether or not it then succeeded in its block
 konstellationd tx broadcast disable.json --node <rpc> --broadcast-mode sync
+konstellationd query tx <disable hash> --node <rpc>       # height N+1 or N+2, code 0
 ```
+
+Broadcast all of them to the **same** node, so `CheckTx` for each step
+runs against the state the previous step produced there.
 
 **Close the gate regardless of the outcome.** If the operator's tx fails
 (wrong commission, insufficient funds, bad pubkey), the answer is to fix
@@ -147,7 +183,8 @@ break D6's "allowlisting is never required" rule).
    entry for them (`group_vars/monitoring.yml`; the foundation pages on
    every validator's liveness, not only its own).
 4. **Records:** the validator's moniker, valoper, consensus pubkey, the
-   heights of the three transactions and their hashes, in the private ops
+   heights of the three transactions and their hashes (and of every
+   refused/re-signed attempt), in the private ops
    notes; `networks/<net>/README.md` validator list if one is kept; the
    operator channel gets the "welcome" line.
 5. **Write-up** in this directory as `admissions/<date>-<moniker>.md`

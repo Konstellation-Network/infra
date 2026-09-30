@@ -5,7 +5,15 @@ node_role: monitoring
 # = its operator address once the gentx exists. Empty valoper = skipped with
 # a warning at deploy time. devnet-1 has one validator (D18).
 tenderduty_validators:
-  - { name: devnet-1-hetzner-validator-v1, valoper: "" }
+  - { name: devnet-1-contabo-validator-v1, valoper: "" }
+
+# Server 3 is archive + monitoring. The archive's konstellationd binds the
+# Cosmos SDK gRPC on localhost:9090 (init's default) — Prometheus's own
+# default web port. Move Prometheus (roles/monitoring_server
+# tasks/port_guard.yml refuses any overlap).
+prometheus_web_port: 9095
+# The host has a public IP: keep alertmanager's HA gossip on loopback.
+alertmanager_cluster_listen_host: "127.0.0.1"
 
 # Checksums from the upstream release sha256sums.txt — fail closed while empty.
 prometheus_sha256: ""

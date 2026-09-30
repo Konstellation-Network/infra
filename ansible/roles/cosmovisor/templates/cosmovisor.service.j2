@@ -11,6 +11,11 @@ Wants=network-online.target
 # volume is mounted (ansible/roles/node) instead.
 RequiresMountsFor={{ daemon_home }}/data
 ConditionPathIsMountPoint={{ daemon_home }}/data
+{% elif single_disk | default(false) | bool %}
+# single_disk: {{ daemon_home }}/data is on the root disk, with the key and
+# priv_validator_state.json. There is no mount to require — a lost disk
+# takes key, state and data together — so no mount guard; ansible/roles/node
+# tasks/state_guard.yml refuses a key whose state file has gone instead.
 {% endif %}
 
 [Service]

@@ -23,6 +23,10 @@ pex: true
 persistent_peers: ""
 private_peer_ids: ""
 seeds: ""
+# true = rpc/archive nodes get persistent_peers = every sentry (public IP)
+# computed in tasks/peers.yml. devnet-1 sets it (no seed node exists);
+# false keeps testnet-1's `seeds`-only behaviour.
+peer_non_validators_with_sentries: false
 node_role: rpc
 cloud: ""
 # tests only: skip the show-node-id command
@@ -59,6 +63,11 @@ jsonrpc_port: 8545
 jsonrpc_ws_port: 8546
 
 local_ssd_count: 0
+# true = this host has one disk and keeps chain data on it, next to the key
+# (devnet-1 on Contabo, 2026-09-30). Mutually exclusive with
+# data_volume_device / local_ssd_count; swaps the data-volume guards for
+# tasks/state_guard.yml. false (testnet-1, mainnet) changes nothing.
+single_disk: false
 # Set -e allow_data_rebuild=true ONLY after runbooks/validator-key-rotation.md
 # §B: lets tasks/data_guard.yml (re)build a data volume under an existing
 # validator key.

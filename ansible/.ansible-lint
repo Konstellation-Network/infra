@@ -5,6 +5,7 @@ exclude_paths:
   - inventories/testnet-1/ssh_config
   - inventories/devnet-1/hosts.yml.example
   - inventories/devnet-1/ssh_config
+  - inventories/devnet-1/ssh_config.example
 
 # var-naming[no-role-prefix] is intentionally not fixed: node/cosmovisor/horcrux/
 # monitoring/firewall roles share one flat variable namespace on purpose (one

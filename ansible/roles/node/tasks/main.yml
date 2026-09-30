@@ -16,6 +16,30 @@
       would ever connect to priv_validator_laddr and the validator would stop
       signing. On devnet-1 the validator signs with its own key.
 
+# A host in several role groups (devnet-1 on Contabo) gets node_role from
+# whichever group_vars file sorts last unless the inventory pins it per
+# host. The node role keys peers and signing on it, so it must name a chain
+# role — e.g. the archive+monitoring host must say `archive`, not
+# `monitoring`.
+- name: Fail if node_role is not a chain-node role
+  ansible.builtin.assert:
+    that:
+      - node_role in ['validator', 'sentry', 'rpc', 'archive']
+    fail_msg: >-
+      node_role={{ node_role }} on a chain node: set node_role in the
+      inventory for a host that is in several groups (hosts.yml host vars).
+
+# single_disk (devnet-1 on Contabo): chain data lives on the root disk with
+# the key. A host cannot be both — tasks/state_guard.yml explains which
+# guard applies when.
+- name: Fail if a single-disk host also declares a data volume
+  when: single_disk | bool
+  ansible.builtin.assert:
+    that:
+      - data_volume_device | default('') | length == 0
+      - local_ssd_count | default(0) | int == 0
+    fail_msg: "single_disk is true but data_volume_device/local_ssd_count are set — pick one layout."
+
 - name: Fail if konstellationd_version/sha256 are unset
   ansible.builtin.assert:
     that:
@@ -170,6 +194,21 @@
         owner: "{{ konstellation_user }}"
         group: "{{ konstellation_group }}"
         mode: "0750"
+
+# --- single disk: no volume to guard; guard the signing state instead ---
+
+- name: Single disk — the data volume and mount guards do not apply here
+  when: single_disk | bool and node_role == 'validator'
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: single_disk — key, signing state and chain data
+      share one disk, so a lost disk loses all three (downtime, never height 0
+      under a surviving key). data_guard.yml and the cosmovisor mount guard are
+      skipped; tasks/state_guard.yml checks the key still has its state file.
+
+- name: Refuse a validator key without its signing state (tasks/state_guard.yml)
+  when: single_disk | bool and node_role == 'validator'
+  ansible.builtin.import_tasks: state_guard.yml
 
 # --- binary ---
 
