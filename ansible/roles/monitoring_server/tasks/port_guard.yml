@@ -1,0 +1,31 @@
+---
+# Every monitoring listener gets its own port, and none of them lands on a
+# port the host's own konstellationd binds when the monitoring host is also
+# a chain node (devnet-1: archive + monitoring on server 3). Two processes
+# on one port means one of them does not start — for Prometheus vs the SDK
+# gRPC (both 127.0.0.1:9090 by default) it is whichever loses the race,
+# i.e. either no metrics or no archive node. prometheus_web_port has
+# collided once already (with CometBFT's 26660, caught by
+# tests/render_test.yml, 2026-09-21). Split out so
+# tests/devnet_render_test.yml imports exactly this check.
+
+- name: Collect the monitoring listeners and, if co-located, the node's
+  ansible.builtin.set_fact:
+    port_guard_monitoring_ports: >-
+      {{ [prometheus_web_port, alertmanager_port, alertmanager_cluster_port, grafana_port,
+          tenderduty_dashboard_port, tenderduty_prometheus_port, node_exporter_port | default(9100)]
+         | map('int') | list }}
+    port_guard_node_ports: >-
+      {{ (monitoring_colocated_node_ports | map('int') | list) if 'chain_nodes' in group_names else [] }}
+
+- name: Fail if two monitoring listeners share a port, or one takes a chain node's port
+  ansible.builtin.assert:
+    that:
+      - port_guard_monitoring_ports | unique | length == port_guard_monitoring_ports | length
+      - port_guard_monitoring_ports | intersect(port_guard_node_ports) | length == 0
+      - prometheus_web_port | int != prometheus_port | default(26660) | int
+    fail_msg: >-
+      {{ inventory_hostname }}: port collision — monitoring {{ port_guard_monitoring_ports }},
+      co-located node {{ port_guard_node_ports }} (overlap:
+      {{ port_guard_monitoring_ports | intersect(port_guard_node_ports) }}). Move the
+      monitoring port (e.g. prometheus_web_port in group_vars/monitoring.yml).

@@ -1,5 +1,7 @@
 ---
 node_role: sentry
+# devnet-1 on Contabo: the one sentry is also the public RPC node (server
+# 2, see rpc.yml). The keys both files set must stay identical.
 
 pex: true
 # private_peer_ids (the validator's node id, never gossiped) and
@@ -14,6 +16,6 @@ pruning_keep_recent: "100"
 pruning_interval: "10"
 
 public_ip: true
-# CometBFT RPC bound on all interfaces so tenderduty (monitoring host) can
-# query it; the cloud firewall + ufw admit 26657 from the monitoring host only.
+# CometBFT RPC bound on all interfaces: tenderduty (monitoring host) queries
+# it, and on devnet-1 this host is the public RPC node too (26657 public).
 rpc_bind_address: "0.0.0.0"

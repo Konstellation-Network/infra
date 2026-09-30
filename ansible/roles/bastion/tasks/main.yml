@@ -44,10 +44,15 @@
 
 # --- router ---
 
-- name: Enable IPv4 forwarding (tunnel routing, and NAT on Hetzner)
+# Forwarding only where this bastion routes something: the cross-cloud
+# tunnel (testnet-1, both bastions) or NAT for private-only hosts (Hetzner).
+# devnet-1 on Contabo has neither — its entry host is also the sentry and
+# public RPC node, and a router there would be pure attack surface — so it
+# is pinned OFF explicitly rather than left at whatever the image shipped.
+- name: Set IPv4 forwarding (on for tunnel routing / NAT, off otherwise)
   ansible.posix.sysctl:
     name: net.ipv4.ip_forward
-    value: "1"
+    value: "{{ '1' if (bastion_routes | bool) else '0' }}"
     sysctl_file: /etc/sysctl.d/99-konstellation-bastion.conf
     reload: true
 

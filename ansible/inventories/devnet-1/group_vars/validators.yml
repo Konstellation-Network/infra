@@ -11,6 +11,11 @@ pruning_keep_recent: "100"
 pruning_interval: "10"
 
 public_ip: false
+# devnet-1 on Contabo: the VPS does have a public IPv4 (every Contabo VPS
+# does). What keeps the validator off the internet is roles/firewall: SSH
+# and p2p from server 2's /32 only, metrics from server 3's /32 only, and
+# CometBFT RPC / REST / JSON-RPC never enabled on a public address (node
+# role defaults: 127.0.0.1, JSON-RPC and REST off).
 
 # devnet-1 has no Horcrux (horcrux_mode = none, README "devnet-1"): the one
 # validator signs with its own priv_validator_key.json. Must stay false —

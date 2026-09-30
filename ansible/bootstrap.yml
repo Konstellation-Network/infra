@@ -1,0 +1,129 @@
+---
+# First contact with a hand-ordered VPS (devnet-1 on Contabo, 2026-09-30).
+# Does what cloud-init does for the OpenTofu-built fleets
+# (terraform/modules/*/cloud-init.yaml.tpl): a `deploy` user with the
+# operator's SSH key and passwordless sudo, then root and password logins
+# off. Run ONCE per fresh server, before site.yml; re-running is harmless
+# while root can still log in, and a no-op afterwards is not possible
+# (root is refused) — that is the point.
+#
+# It connects as root DIRECTLY to each ansible_host (a fresh VPS has no
+# firewall yet), not through ssh_config's ProxyJump: `deploy` does not
+# exist on server 2 yet. Give root an SSH key when ordering (Contabo panel:
+# "SSH key" at checkout — preferred), or pass --ask-pass for the emailed
+# root password (needs sshpass on your machine).
+#
+#   ansible-playbook -i inventories/devnet-1/hosts.yml bootstrap.yml \
+#     -e deploy_ssh_public_key_file=~/.ssh/konstellation_devnet_deploy.pub
+#
+# Keep the root password (Contabo emails it / shows it in the panel): after
+# this playbook it only works on Contabo's VNC console, which is the
+# break-glass path if server 2 or the firewall locks you out.
+
+- name: Bootstrap the deploy user on a fresh VPS
+  hosts: all
+  gather_facts: false
+  become: false
+  vars:
+    ansible_user: root
+    # direct, not via ssh_config (see header)
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new -o IdentitiesOnly=no"
+    deploy_user: deploy
+    deploy_ssh_public_key_file: ""
+    deploy_ssh_public_key_path: "{{ deploy_ssh_public_key_file | expanduser }}"
+  tasks:
+    - name: Fail without the deploy public key
+      ansible.builtin.assert:
+        that:
+          - deploy_ssh_public_key_file | length > 0
+          - lookup('ansible.builtin.file', deploy_ssh_public_key_path) is match('^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) ')
+        fail_msg: "pass -e deploy_ssh_public_key_file=<path to the .pub of the key in ssh_config's IdentityFile>"
+      delegate_to: localhost
+
+    - name: Make sure python3 exists (Ansible's modules need it)
+      ansible.builtin.raw: test -x /usr/bin/python3 || (apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q python3)
+      register: bootstrap_python
+      changed_when: "'Setting up python3' in bootstrap_python.stdout"
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+    - name: Fail unless this is Debian 12 or Ubuntu 24.04 (what the roles are written against)
+      ansible.builtin.assert:
+        that:
+          - (ansible_facts.distribution == 'Debian' and ansible_facts.distribution_major_version == '12')
+            or (ansible_facts.distribution == 'Ubuntu' and ansible_facts.distribution_version == '24.04')
+        fail_msg: "{{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }} — reinstall the VPS with Debian 12 from the Contabo panel."
+
+    - name: Install sudo, fail2ban, unattended-upgrades (as cloud-init does elsewhere)
+      ansible.builtin.apt:
+        name:
+          - sudo
+          - fail2ban
+          - unattended-upgrades
+        state: present
+        update_cache: true
+
+    - name: Create the deploy user
+      ansible.builtin.user:
+        name: "{{ deploy_user }}"
+        shell: /bin/bash
+        groups: [sudo]
+        append: true
+        password_lock: true
+
+    - name: Install the operator's key for deploy (and only that key)
+      ansible.posix.authorized_key:
+        user: "{{ deploy_user }}"
+        key: "{{ lookup('ansible.builtin.file', deploy_ssh_public_key_path) }}"
+        exclusive: true
+
+    - name: Passwordless sudo for deploy (Ansible's become)
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/90-konstellation-deploy
+        content: "{{ deploy_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+
+    # Before root is shut out: prove deploy can log in with the key and
+    # become root. If this fails, nothing below runs and root still works.
+    - name: Log in as deploy and become root
+      ansible.builtin.command: id -u
+      vars:
+        ansible_user: "{{ deploy_user }}"
+        # the private half next to the .pub, as ssh_config's IdentityFile
+        ansible_ssh_private_key_file: "{{ deploy_ssh_public_key_path | regex_replace('\\.pub$', '') }}"
+        ansible_become: true
+      register: bootstrap_deploy_check
+      changed_when: false
+
+    - name: Fail unless deploy reached root
+      ansible.builtin.assert:
+        that:
+          - bootstrap_deploy_check.stdout | trim == '0'
+
+    # Drop-in sorts before cloud-init's 50-cloud-init.conf (which may say
+    # PasswordAuthentication yes); sshd keeps the FIRST value it reads.
+    # roles/bastion adds its own hardening on server 2 later.
+    - name: Turn off root and password SSH logins
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/05-konstellation-bootstrap.conf
+        content: |
+          # Managed by ansible/bootstrap.yml
+          PermitRootLogin no
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PubkeyAuthentication yes
+        owner: root
+        group: root
+        mode: "0644"
+        validate: "sshd -t -f %s"
+      notify: Restart sshd
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted

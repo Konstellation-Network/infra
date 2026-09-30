@@ -10,6 +10,10 @@ operator_ssh_cidrs: []
 
 # Hetzner only: forward + masquerade the private network to the internet.
 nat_gateway: false
+# Whether this bastion forwards packets at all: NAT, or the cross-cloud
+# WireGuard tunnel (site.yml's cross_cloud_tunnel, absent = true). False on
+# devnet-1 (Contabo: no private network, no NAT, no tunnel).
+bastion_routes: "{{ (nat_gateway | bool) or (cross_cloud_tunnel | default(true) | bool) }}"
 network_cidr: ""
 # Interface with the public IP (Hetzner cloud Debian 12: eth0; GCP: ens4).
 # Auto-detected from the default route when empty.

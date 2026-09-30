@@ -1,14 +1,16 @@
 ---
-# Rendered-template tests for the single-cloud, single-validator devnet-1
-# shape (D18, 2026-09-29). Same rules as render_test.yml: controller only,
-# no host touched, the roles' own task files imported. The fixture IS the
-# shipped example — tests/devnet_inventory/hosts.yml and group_vars are
-# symlinks to inventories/devnet-1/{hosts.yml.example,group_vars} — so drift
-# in either fails here. Run:
+# Rendered-template tests for devnet-1 on Contabo (founder decision,
+# 2026-09-30): three hand-ordered VPSes, public IPs only, one disk each,
+# one validator. Same rules as render_test.yml: controller only, no host
+# touched, the roles' own task files imported. The fixture IS the shipped
+# example — tests/devnet_inventory/hosts.yml and group_vars are symlinks to
+# inventories/devnet-1/{hosts.yml.example,group_vars} — so drift in either
+# fails here. Run:
 #
 #   ansible-playbook -i tests/devnet_inventory/hosts.yml tests/devnet_render_test.yml
 #
-# MUTATION SET — each must make this suite FAIL (verified 2026-09-29):
+# MUTATION SET — each must make this suite FAIL (1-3 verified 2026-09-29,
+# 4-10 verified 2026-09-30; re-run after touching any of the files):
 #   1. site.yml: drop the `when: cross_cloud_tunnel …` on roles/wireguard
 #                                                        -> "Devnet-1 — site.yml shape" fails
 #   2. roles/node/tasks/main.yml: delete the horcrux_mode assert
@@ -16,28 +18,107 @@
 #   3. roles/node/tasks/peers.yml: make validators peer with the rpc node
 #      or sentries stop listing the validator in private_peer_ids
 #                                                        -> "Devnet-1 — peer wiring" fails
+#   4. roles/firewall/tasks/plan.yml: compute fw_roles as [node_role] only
+#      (no group union)                                  -> "Devnet-1 — firewall" fails (server 2
+#                                                           loses public RPC and operator SSH)
+#   5. roles/firewall/tasks/plan.yml: validators take p2p from the whole
+#      fleet (loop over fleet_cidrs instead of the sentries)
+#                                                        -> "Devnet-1 — firewall" fails
+#   6. inventories/devnet-1/hosts.yml.example: delete metrics_scrape_cidrs
+#      (falls back to the whole fleet, server 2 included)
+#                                                        -> "Devnet-1 — inventory shape" fails
+#                                                           (and "Devnet-1 — firewall" would)
+#   7. inventories/devnet-1/group_vars/monitoring.yml: delete
+#      prometheus_web_port (back to 9090 = the archive's SDK gRPC)
+#                                                        -> "Devnet-1 — monitoring on the archive host" fails
+#   8. roles/monitoring_server/templates/prometheus.yml.j2: drop the
+#      scraped-once dedupe                               -> "Devnet-1 — monitoring on the archive host" fails
+#   9. roles/node/tasks/state_guard.yml: delete the `not
+#      state_guard_state.stat.exists` condition          -> "Devnet-1 — single-disk guards" fails
+#  10. roles/bastion/defaults/main.yml: bastion_routes: true
+#                                                        -> "Devnet-1 — the entry host does not route" fails
+
+- name: Set up the scratch directory
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Create scratch dir
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: konstellation-devnet-render-
+      register: scratch
+
+    - name: Publish scratch path
+      ansible.builtin.set_fact:
+        render_dir: "{{ scratch.path }}"
 
 - name: Devnet-1 — inventory shape
   hosts: localhost
   connection: local
   gather_facts: false
   become: false
+  vars:
+    validator: "{{ groups['validators'][0] }}"
+    edge: "{{ groups['sentries'][0] }}"
+    archive: "{{ groups['archive'][0] }}"
   tasks:
-    - name: Assert one validator, no cosigners, no tunnel, the devnet ids
+    - name: Assert three hosts, one validator alone on its host, the multi-role hosts, the devnet ids
       ansible.builtin.assert:
         that:
+          - groups['all'] | length == 3
           - groups['validators'] | length == 1
           - groups['cosigners'] | default([]) | length == 0
-          - groups['bastions'] | length == 1
-          - groups['sentries'] | length >= 1
-          - groups['rpc'] | length == 1
-          - groups['archive'] | length == 1
-          - hostvars[groups['validators'][0]]['horcrux_mode'] == 'none'
-          - not (hostvars[groups['validators'][0]]['horcrux_enabled'] | bool)
-          - not (hostvars[groups['bastions'][0]]['cross_cloud_tunnel'] | bool)
-          - hostvars[groups['bastions'][0]]['remote_cidrs'] | length == 0
-          - hostvars[groups['validators'][0]]['chain_id'] == 'devnet-1'
-          - hostvars[groups['validators'][0]]['evm_chain_id'] | int == 56672
+          - groups['sentries'] == [edge]
+          - groups['rpc'] == [edge]
+          - groups['bastions'] == [edge]
+          - groups['archive'] == [archive]
+          - groups['monitoring'] == [archive]
+          - hostvars[validator]['group_names'] | sort == ['chain_nodes', 'validators']
+          - hostvars[validator]['node_role'] == 'validator'
+          - hostvars[edge]['node_role'] == 'sentry'
+          - hostvars[archive]['node_role'] == 'archive'
+          - hostvars[validator]['chain_id'] == 'devnet-1'
+          - hostvars[validator]['evm_chain_id'] | int == 56672
+          - hostvars[validator]['horcrux_mode'] == 'none'
+          - not (hostvars[validator]['horcrux_enabled'] | bool)
+          - not (hostvars[edge]['cross_cloud_tunnel'] | bool)
+        fail_msg: "devnet-1 inventory is not the three-server Contabo shape"
+
+    - name: Assert the Contabo properties — public /32s only, one disk, no NAT, no forwarding
+      ansible.builtin.assert:
+        that:
+          - groups['all'] | map('extract', hostvars, 'ansible_host') | unique | length == 3
+          - groups['all'] | map('extract', hostvars, 'ansible_host') | select('match', '^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)') | list | length == 0
+          - groups['all'] | map('extract', hostvars) | selectattr('data_volume_device', 'defined') | list | length == 0
+          - groups['all'] | map('extract', hostvars, 'private_network') | map('bool') | unique == [false]
+          - groups['all'] | map('extract', hostvars, 'single_disk') | map('bool') | unique == [true]
+          - groups['all'] | map('extract', hostvars, 'cloud') | unique == ['contabo']
+          - hostvars[edge]['ssh_entry'] | bool
+          - not (hostvars[edge]['nat_gateway'] | bool)
+          - hostvars[edge]['remote_cidrs'] | length == 0
+          - hostvars[edge]['operator_ssh_cidrs'] | length > 0
+          - hostvars[validator]['bastion_private_ip'] == hostvars[edge]['ansible_host']
+          - hostvars[validator]['monitoring_host_private_ip'] == hostvars[archive]['ansible_host']
+          - hostvars[validator]['metrics_scrape_cidrs'] == [hostvars[archive]['ansible_host'] ~ '/32']
+
+- name: Devnet-1 — the entry host does not route
+  hosts: bastions
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Load roles/bastion defaults as they would apply to this host
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../roles/bastion/defaults/main.yml"
+        name: bastion_defaults
+
+    - name: Assert IPv4 forwarding would be pinned off (no NAT, no tunnel)
+      ansible.builtin.assert:
+        that:
+          - not (bastion_defaults.bastion_routes | bool)
+        fail_msg: "roles/bastion would turn server 2 (sentry + public RPC) into a router"
 
 - name: Devnet-1 — site.yml shape
   hosts: localhost
@@ -72,8 +153,8 @@
   tasks:
     # The horcrux assert is the FIRST task of roles/node/tasks/main.yml, and
     # konstellationd_version is empty in the devnet group_vars, so if the
-    # assert were missing the next task (the version-pin assert) fails
-    # instead — nothing past the asserts ever runs on the controller.
+    # assert were missing a later assert (the version pin) fails instead —
+    # nothing past the asserts ever runs on the controller.
     - name: A validator told to wait for Horcrux on a network without it must be refused
       block:
         - name: Run the role's tasks with horcrux_enabled forced on
@@ -108,17 +189,297 @@
         name: node
         tasks_from: peers.yml
 
-    - name: Assert the validator peers with every sentry on its private IP
+    - name: Assert the validator's only peer is the sentry, on its public IP
       when: node_role == 'validator'
       ansible.builtin.assert:
         that:
-          - p2p_persistent_peers | split(',') | length == groups['sentries'] | length
-          - "p2p_persistent_peers is search(hostvars[groups['sentries'][0]]['node_id'] ~ '@' ~ hostvars[groups['sentries'][0]]['ansible_host'] ~ ':26656')"
-          - p2p_persistent_peers is not search(hostvars[groups['rpc'][0]]['ansible_host'])
+          - p2p_persistent_peers == hostvars[groups['sentries'][0]]['node_id'] ~ '@' ~ hostvars[groups['sentries'][0]]['public_ipv4'] ~ ':26656'
+          - p2p_private_peer_ids == ''
+          - pex | string | lower == 'false'
+        fail_msg: "validator persistent_peers={{ p2p_persistent_peers }}"
 
-    - name: Assert sentries hide the validator and cross-peer only when there is another sentry
+    - name: Assert the sentry+rpc node hides the validator and has no other sentry to cross-peer with
       when: node_role == 'sentry'
       ansible.builtin.assert:
         that:
           - p2p_private_peer_ids == hostvars[groups['validators'][0]]['node_id']
-          - (p2p_persistent_peers | length == 0) == (groups['sentries'] | length == 1)
+          - p2p_persistent_peers == ''
+
+    - name: Assert the archive peers with the sentry (no seed node on devnet-1) and hides nothing
+      when: node_role == 'archive'
+      ansible.builtin.assert:
+        that:
+          - p2p_persistent_peers == hostvars[groups['sentries'][0]]['node_id'] ~ '@' ~ hostvars[groups['sentries'][0]]['public_ipv4'] ~ ':26656'
+          - p2p_private_peer_ids == ''
+
+    - name: Assert server 2's one node is both the sentry and the public RPC (config the node role reconciles)
+      when: inventory_hostname == groups['rpc'][0]
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in groups['sentries']
+          - jsonrpc_enabled | bool
+          - jsonrpc_bind_address == '0.0.0.0'
+          - rpc_bind_address == '0.0.0.0'
+          - api_enabled | bool
+          - minimum_gas_prices == '1000000000esp'
+          - pex | bool
+
+    - name: Assert nothing listens publicly on the validator or the archive (RPC, REST, JSON-RPC)
+      when: node_role in ['validator', 'archive']
+      ansible.builtin.assert:
+        that:
+          - rpc_bind_address == '127.0.0.1'
+          - jsonrpc_bind_address == '127.0.0.1'
+          - node_role == 'archive' or not (jsonrpc_enabled | bool)
+          - node_role == 'archive' or not (api_enabled | bool)
+        fail_msg: "{{ inventory_hostname }} binds rpc={{ rpc_bind_address }} jsonrpc={{ jsonrpc_bind_address }}"
+
+- name: Devnet-1 — firewall
+  hosts: all
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    validator_ip: "{{ hostvars[groups['validators'][0]]['ansible_host'] }}"
+    edge_ip: "{{ hostvars[groups['sentries'][0]]['ansible_host'] }}"
+    archive_ip: "{{ hostvars[groups['archive'][0]]['ansible_host'] }}"
+    rpc_ports: ['26657', '1317', '8545:8546', '8545', '8546']
+  tasks:
+    - name: Compute the rule set through the role's tasks
+      ansible.builtin.import_role:
+        name: firewall
+        tasks_from: plan.yml
+
+    - name: Assert the validator admits SSH and p2p from server 2 only, metrics from server 3 only, and no RPC port at all
+      when: inventory_hostname in groups['validators']
+      ansible.builtin.assert:
+        that:
+          - fw_roles == ['validator']
+          - firewall_rules | rejectattr('src', 'defined') | list | length == 0
+          - firewall_rules | selectattr('port', '==', '22') | map(attribute='src') | list == [edge_ip]
+          - firewall_rules | selectattr('port', '==', '26656') | map(attribute='src') | list == [edge_ip]
+          - firewall_rules | selectattr('port', 'in', ['9100', '26660']) | map(attribute='src') | unique | list == [archive_ip ~ '/32']
+          - firewall_rules | selectattr('port', 'in', rpc_ports) | list | length == 0
+          - firewall_rules | map(attribute='port') | unique | sort == ['22', '26656', '26660', '9100']
+          - firewall_rules | selectattr('route', 'defined') | list | length == 0
+        fail_msg: "validator rules: {{ firewall_rules }}"
+
+    - name: Assert server 2 is sentry + public RPC + SSH entry, with operator-only SSH
+      when: inventory_hostname in groups['rpc']
+      ansible.builtin.assert:
+        that:
+          - fw_roles | sort == ['bastion', 'rpc', 'sentry']
+          - firewall_rules | rejectattr('src', 'defined') | map(attribute='port') | sort == ['1317', '26656', '26657', '8545:8546']
+          - firewall_rules | selectattr('port', '==', '22') | map(attribute='src') | list == operator_ssh_cidrs
+          - firewall_rules | selectattr('port', 'in', ['9100', '26660']) | map(attribute='src') | unique | list == [archive_ip ~ '/32']
+          - firewall_rules | selectattr('route', 'defined') | list | length == 0
+        fail_msg: "server 2 rules: {{ firewall_rules }}"
+
+    - name: Assert server 3 (archive + monitoring) has nothing public and SSH from server 2 only
+      when: inventory_hostname in groups['archive']
+      ansible.builtin.assert:
+        that:
+          - fw_roles | sort == ['archive', 'monitoring']
+          - firewall_rules | rejectattr('src', 'defined') | list | length == 0
+          - firewall_rules | selectattr('port', '==', '22') | map(attribute='src') | list == [edge_ip]
+          - firewall_rules | selectattr('src', 'defined') | map(attribute='src') | map('regex_replace', '/32$', '') | unique | difference([edge_ip, archive_ip]) | length == 0
+          - firewall_rules | selectattr('port', 'in', ['1317', '8545:8546']) | list | length == 0
+        fail_msg: "server 3 rules: {{ firewall_rules }}"
+
+    - name: A validator sharing its host with another role must be refused
+      when: inventory_hostname in groups['validators']
+      block:
+        - name: Plan again with the validator host also claiming the rpc role
+          ansible.builtin.import_role:
+            name: firewall
+            tasks_from: plan.yml
+          vars:
+            node_role: rpc  # + the validators group = two roles on one host
+        - name: Reached only if the assert did not fire
+          ansible.builtin.set_fact:
+            shared_refused: false
+      rescue:
+        - name: Record the refusal
+          ansible.builtin.set_fact:
+            shared_refused: "{{ ansible_failed_result.msg is search('holds no other role') }}"
+
+    - name: Assert the shared-host validator was refused
+      when: inventory_hostname in groups['validators']
+      ansible.builtin.assert:
+        that:
+          - shared_refused | bool
+
+- name: Devnet-1 — monitoring on the archive host
+  hosts: monitoring
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    render_dir: "{{ hostvars['localhost']['render_dir'] }}"
+    monitoring_render_only: true
+    prometheus_config_dir: "{{ render_dir }}"
+    alertmanager_config_dir: "{{ render_dir }}"
+    tenderduty_dir: "{{ render_dir }}"
+    tenderduty_unit_path: "{{ render_dir }}/tenderduty.service"
+    tenderduty_image_digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  tasks:
+    - name: Port guard (the role's own task file) must pass as shipped
+      ansible.builtin.import_role:
+        name: monitoring_server
+        tasks_from: port_guard.yml
+
+    - name: Port guard must refuse Prometheus on the SDK gRPC port of the co-located archive
+      block:
+        - name: Run it with prometheus_web_port back at 9090
+          ansible.builtin.import_role:
+            name: monitoring_server
+            tasks_from: port_guard.yml
+          vars:
+            prometheus_web_port: 9090
+        - name: Reached only if the guard did not fire
+          ansible.builtin.set_fact:
+            port_guard_fired: false
+      rescue:
+        - name: Record the refusal
+          ansible.builtin.set_fact:
+            port_guard_fired: true
+
+    - name: Render through the role's tasks
+      ansible.builtin.import_role:
+        name: monitoring_server
+        tasks_from: configs.yml
+
+    - name: Read them back
+      ansible.builtin.slurp:
+        src: "{{ render_dir }}/{{ item }}"
+      loop: [prometheus.yml, config.yml]
+      register: rendered
+
+    - name: Assert the host is really co-located and nothing collides with its node
+      ansible.builtin.assert:
+        that:
+          - port_guard_fired | bool
+          - "'archive' in group_names and 'chain_nodes' in group_names"
+          - prometheus_web_port | int not in [prometheus_port | int, 9090, 26656, 26657, 1317, 8545, 8546]
+          - "rendered.results[0].content | b64decode is search('127.0.0.1:' ~ prometheus_web_port ~ '\"')"
+
+    - name: Assert all three servers are scrape targets, each konstellationd exactly once, on public IPs
+      ansible.builtin.assert:
+        that:
+          - prom | regex_findall(':26660"') | length == 3
+          - prom | regex_findall(':9100"') | length == 3
+          - prom is search('"' ~ hostvars[groups['validators'][0]]['ansible_host'] ~ ':26660"')
+          - prom is search('"' ~ hostvars[groups['sentries'][0]]['ansible_host'] ~ ':26660"')
+          - prom is search('"' ~ hostvars[groups['archive'][0]]['ansible_host'] ~ ':26660"')
+          - prom is search('"' ~ hostvars[groups['validators'][0]]['ansible_host'] ~ ':9100"')
+          - prom is search('"' ~ hostvars[groups['sentries'][0]]['ansible_host'] ~ ':9100"')
+          - prom is search('"127.0.0.1:9100"')
+          - "prom is not search('job_name: horcrux')"
+        fail_msg: "{{ prom }}"
+      vars:
+        prom: "{{ rendered.results[0].content | b64decode }}"
+
+    - name: Assert tenderduty watches the validator through server 2, listed once
+      ansible.builtin.assert:
+        that:
+          - tenderduty_rpc_nodes == ['http://' ~ hostvars[groups['sentries'][0]]['ansible_host'] ~ ':26657']
+          - tenderduty_validators | map(attribute='name') | list == groups['validators']
+          - rendered.results[1].content | b64decode is search('chains:')
+
+- name: Devnet-1 — single-disk guards
+  hosts: chain_nodes
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    render_dir: "{{ hostvars['localhost']['render_dir'] }}"
+    cosmovisor_render_only: true
+    cosmovisor_unit_path: "{{ render_dir }}/cosmovisor-{{ inventory_hostname }}.service"
+  tasks:
+    - name: Render the unit through the role's task
+      ansible.builtin.import_role:
+        name: cosmovisor
+        tasks_from: unit.yml
+
+    - name: Read it back
+      ansible.builtin.slurp:
+        src: "{{ cosmovisor_unit_path }}"
+      register: unit
+
+    - name: Assert no mount guard (no volume to mount) and the single-disk reason instead
+      ansible.builtin.assert:
+        that:
+          - unit.content | b64decode is not search('RequiresMountsFor')
+          - unit.content | b64decode is not search('ConditionPathIsMountPoint')
+          - unit.content | b64decode is search('single_disk')
+          - unit.content | b64decode is search('state_guard.yml')
+
+- name: Devnet-1 — single-disk state guard (§2.7)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    daemon_home: "{{ render_dir }}/state_guard_home"
+  tasks:
+    - name: Simulate a validator whose data directory was wiped under its key
+      ansible.builtin.file:
+        path: "{{ daemon_home }}/config"
+        state: directory
+        mode: "0700"
+
+    - name: Place a (fake) consensus key, no state file
+      ansible.builtin.copy:
+        dest: "{{ daemon_home }}/config/priv_validator_key.json"
+        content: '{"fake": "render-test only"}'
+        mode: "0600"
+
+    - name: The guard must refuse
+      block:
+        - name: Run the role's state guard
+          ansible.builtin.import_role:
+            name: node
+            tasks_from: state_guard.yml
+        - name: Reached only if the guard did not fire
+          ansible.builtin.set_fact:
+            guard_fired: false
+      rescue:
+        - name: Record the refusal
+          ansible.builtin.set_fact:
+            guard_fired: true
+            guard_msg: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: Assert it refused, with the runbook pointers
+      ansible.builtin.assert:
+        that:
+          - guard_fired | bool
+          - guard_msg is search('validator-key-rotation.md')
+          - guard_msg is search('emergency-halt.md')
+        fail_msg: "state_guard.yml let a validator key run without its signing state"
+
+    - name: Create the data dir
+      ansible.builtin.file:
+        path: "{{ daemon_home }}/data"
+        state: directory
+        mode: "0700"
+
+    - name: Put the state file back
+      ansible.builtin.copy:
+        dest: "{{ daemon_home }}/data/priv_validator_state.json"
+        content: '{"height": "42", "round": 0, "step": 3}'
+        mode: "0600"
+
+    - name: With key and state together it must pass
+      ansible.builtin.import_role:
+        name: node
+        tasks_from: state_guard.yml
+
+- name: Report
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Where the renders are
+      ansible.builtin.debug:
+        msg: "All devnet-1 render assertions passed; rendered files in {{ render_dir }}"

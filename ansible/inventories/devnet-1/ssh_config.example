@@ -1,0 +1,42 @@
+# devnet-1 on Contabo — hand-written (no OpenTofu). Copy to ssh_config next
+# to hosts.yml and replace the three documentation IPs with the same values
+# as devnet_*_ip in hosts.yml. Each Host line names the inventory hostname
+# AND the IP, because Ansible connects to ansible_host (the IP).
+#
+# Usage:  ssh -F ansible/inventories/devnet-1/ssh_config devnet-1-contabo-validator-v1
+# Ansible uses it through ansible_ssh_common_args in hosts.yml.
+#
+# Why ProxyJump and not direct SSH to every host: servers 1 and 3 admit SSH
+# from server 2's /32 only (roles/firewall), so the internet sees exactly
+# one sshd — server 2's, key-only, AllowUsers deploy, fail2ban, and only
+# from devnet_operator_ssh_cidrs. Direct SSH pinned to the operator's CIDR
+# on all three would be three internet-facing sshds, the validator's among
+# them, and every operator IP change a firewall edit on the validator.
+# Cost: server 2 down = no SSH to 1 and 3; the break-glass path is
+# Contabo's VNC console (panel -> VPS -> "VNC"), with the root password.
+
+# server 2 — sentry + public RPC + the SSH entry point
+Host devnet-1-contabo-sentry-rpc-1 198.51.100.21
+  HostName 198.51.100.21
+
+# server 1 — validator
+Host devnet-1-contabo-validator-v1 192.0.2.11
+  HostName 192.0.2.11
+  ProxyJump devnet-1-contabo-sentry-rpc-1
+
+# server 3 — archive + monitoring
+Host devnet-1-contabo-archive-mon-1 203.0.113.31
+  HostName 203.0.113.31
+  ProxyJump devnet-1-contabo-sentry-rpc-1
+
+Host *
+  User deploy
+  # the private half of the key bootstrap.yml installed for `deploy`
+  IdentityFile ~/.ssh/konstellation_devnet_deploy
+  IdentitiesOnly yes
+  ForwardAgent no
+  # First connection to a freshly ordered VPS is trust-on-first-use; a
+  # CHANGED key afterwards is still refused (that is the case that matters —
+  # it also fires after a Contabo "reinstall", which is correct).
+  StrictHostKeyChecking accept-new
+  ServerAliveInterval 30

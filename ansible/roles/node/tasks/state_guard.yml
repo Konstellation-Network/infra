@@ -1,0 +1,53 @@
+---
+# The single-disk counterpart of tasks/data_guard.yml (ENGINEERING.md §2.7),
+# for hosts with `single_disk: true` (devnet-1 on Contabo: one disk, no
+# separate data volume).
+#
+# Why data_guard.yml and the cosmovisor mount guard do not apply there:
+# both exist for the case where the data volume is lost but the key
+# survives on ANOTHER disk (GCP Local SSD after a host error, a detached
+# Hetzner volume) — the node would then start with its key and a fresh
+# priv_validator_state.json at height 0. On a single disk the key, the
+# state file and the chain data share one filesystem: a lost disk loses
+# all three, which is downtime (and, on devnet-1, a restore of the key from
+# the founder's backup — runbooks/validator-key-rotation.md §B), never a
+# node signing from height 0 on its own. There is no mount to guard.
+#
+# What CAN still happen on one disk is the same failure class by hand: the
+# data directory (and with it priv_validator_state.json) wiped or replaced
+# while the key stays — `rm -rf data` to resync, restoring config/ from a
+# backup onto a fresh disk, a snapshot of only part of the tree. CometBFT
+# itself refuses to start with a key and no state file; the tempting fix is
+# to write a height-0 state file, which is exactly the double-sign path. So
+# this stops the play with the runbook pointer before anything is changed
+# or restarted.
+#
+# Override: -e allow_data_rebuild=true, only after
+# runbooks/validator-key-rotation.md §B.
+
+- name: Check whether this host holds a validator consensus key
+  ansible.builtin.stat:
+    path: "{{ daemon_home }}/config/priv_validator_key.json"
+  register: state_guard_key
+
+- name: Check whether its signing state is next to it
+  ansible.builtin.stat:
+    path: "{{ daemon_home }}/data/priv_validator_state.json"
+  register: state_guard_state
+
+- name: Refuse to continue with a validator key whose signing state is gone
+  when:
+    - state_guard_key.stat.exists
+    - not state_guard_state.stat.exists
+    - not (allow_data_rebuild | default(false) | bool)
+  ansible.builtin.fail:
+    msg: >-
+      {{ inventory_hostname }} holds {{ daemon_home }}/config/priv_validator_key.json
+      but {{ daemon_home }}/data/priv_validator_state.json is missing — the data
+      directory was wiped or replaced under the key (single disk: there is no
+      separate volume that could have been lost on its own). Starting this key
+      from a fresh height-0 signing state is the double-sign path (ENGINEERING.md
+      §2.7). Restore the state file that belongs with this key, or follow
+      runbooks/validator-key-rotation.md §B (devnet-1: one validator, read its
+      paragraph there) and runbooks/emergency-halt.md if the chain is affected,
+      then re-run with -e allow_data_rebuild=true.
