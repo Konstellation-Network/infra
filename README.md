@@ -357,14 +357,20 @@ the public RPC, the archive and SSH to the other two until it is back.
 failover deadlocks a one-validator chain; its devnet-1 paragraph says what
 to do instead.
 
-**Contabo plans (recommendation, confirm names/specs in the panel of the
-day; all three in one region, Debian 12):**
+**Contabo plans** (Contabo's catalogue as of 2026-09-30; all three in one
+region, Debian 12, the default single public IPv4, no private-networking
+add-on). The panel names each VPS; use the inventory hostnames below so they
+match `hosts.yml`:
 
-| Server | Plan | Why |
-|---|---|---|
-| 1 validator | Cloud VPS 30 (8 vCPU, 24 GB, NVMe) | pruned state stays small on a quiet devnet; NVMe for commit latency (§9.2); headroom for the EVM. Cloud VPS 20 works while traffic is low |
-| 2 sentry + RPC | Cloud VPS 30 (8 vCPU, 24 GB, NVMe) | the public JSON-RPC (`eth_getLogs`, `eth_call`) is the CPU/RAM hot spot; pruned |
-| 3 archive + monitoring (+ explorer, faucet) | Cloud VPS 40 (12 vCPU, 48 GB) with the largest disk offered | `pruning = nothing` grows forever; Blockscout's Postgres and indexer want ~16 GB; Prometheus keeps 90 days. Disk is the limit — watch `DiskHeadroomLow` |
+| Server (inventory hostname) | Plan | Specs | Why |
+|---|---|---|---|
+| 1 `devnet-1-contabo-validator-v1` | **Cloud VDS M** | 8 **dedicated** AMD EPYC cores, 32 GB, 240 GB NVMe | ENGINEERING §9.2: a block producer never runs on shared vCPU or network disk, on any network. Pruned state stays small on devnet |
+| 2 `devnet-1-contabo-sentry-rpc-1` | **Cloud VPS 8** | 8 vCPU (shared), 24 GB, 300 GB SSD (the NVMe option if offered) | the public JSON-RPC (`eth_getLogs`, `eth_call`) is the CPU/RAM hot spot; pruned |
+| 3 `devnet-1-contabo-archive-mon-1` | **Cloud VPS 12** | 12 vCPU (shared), 48 GB, 400 GB SSD, or the largest disk offered at a small premium | `pruning = nothing` grows forever; Blockscout's Postgres and indexer plus the archive and Prometheus (90 days) want the RAM. Disk is the limit: add a storage extension when `DiskHeadroomLow` fires |
+
+Advertised prices on 2026-09-30 (effective monthly rate on a 24-month term,
+tax included; shorter terms cost more): VDS M about €49.60, VPS 8 about
+€14.00, VPS 12 about €25.00, so about €89/month. Confirm in the configurator.
 
 ### devnet-1: deploying
 
